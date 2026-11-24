@@ -47,9 +47,9 @@ This package answers each of these in code, with a test that fails if the answer
 | `RoutePolicy`, `RouteDecision` | A pure decision table: `onDevice(plan)`, `escalate(because:)` or `refuse(because:blockedBy:)`. A request declares the capabilities it needs (for example `.imageInput`); carrying the image itself is the app's job. |
 | `AssistantEngine` (actor) | Owns the active mode, state, transcript and records. Every way a turn can end is a `TurnOutcome`. Records outlive the transcript, so they keep counts and token estimates but no turn text, and answers given in a private mode are redacted in them. |
 | `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run a 19-step house eval against a scripted model; the demo's `-scenario eval` runs a 15-step variant, on its own graph, against Apple's model. |
-| `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. In the run shown in the demo repo, against Apple's model: 70% agreement over 10 runs (2 distinct answers). |
+| `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. The demo repo shows a real run against Apple's model. |
 | `SystemModelBackend` | `OnDeviceModel` backed by Foundation Models' `SystemLanguageModel` (compiled where the SDK has it, iOS/macOS 26+). |
-| `AssistantModesUI` | `AssistantConsoleView`, an inspector that shows each turn's route and the reason for it. |
+| `AssistantModesUI` | `AssistantConsoleView`, an inspector that shows each turn's route and the reason for it, the active mode's conversation, and the session state. |
 
 ## Design decisions and trade-offs
 

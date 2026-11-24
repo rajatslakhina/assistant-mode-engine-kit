@@ -18,6 +18,7 @@ public struct AssistantConsoleView: View {
                         modeBar(snapshot)
                         capabilityCard(snapshot)
                         turnLog(snapshot)
+                        conversationCard(snapshot)
                         stateCard(snapshot)
                         if let report = model.lastTransition { transitionCard(report) }
                         if let error = model.lastError {
@@ -132,8 +133,24 @@ public struct AssistantConsoleView: View {
         }
     }
 
+    /// The active mode's transcript, in full. The turn log above shows routing and, for private
+    /// modes, a redaction; the answer itself lives here, and is cleared when the mode is left.
+    private func conversationCard(_ snapshot: EngineSnapshot) -> some View {
+        card(title: "Conversation in this mode") {
+            if snapshot.transcript.isEmpty {
+                Text("Nothing yet. A mode switch starts a new conversation.").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(Array(snapshot.transcript.suffix(3).enumerated()), id: \.offset) { _, turn in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(turn.user).font(.caption.bold()).lineLimit(2)
+                    Text(turn.assistant).font(.footnote)
+                }
+            }
+        }
+    }
+
     private func stateCard(_ snapshot: EngineSnapshot) -> some View {
-        card(title: "Session state (\(snapshot.transcript.count) turn(s) in this mode)") {
+        card(title: "Session state") {
             if snapshot.state.values.isEmpty {
                 Text("Empty").font(.caption).foregroundStyle(.secondary)
             }
