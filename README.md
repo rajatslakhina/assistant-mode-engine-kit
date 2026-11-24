@@ -7,6 +7,8 @@
 
 Demo app: (added after the companion repo is pushed — see below)
 
+<img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, an over-budget prompt escalated after consent, and the same prompt refused before consent">
+
 ```mermaid
 flowchart LR
   capture -- "carries topic, notes" --> plan
@@ -45,7 +47,7 @@ This package answers each of these in code, with a test that fails if the answer
 | `RoutePolicy`, `RouteDecision` | A pure decision table: `onDevice(plan)`, `escalate(because:)` or `refuse(because:blockedBy:)`. A request declares the capabilities it needs (for example `.imageInput`); carrying the image itself is the app's job. |
 | `AssistantEngine` (actor) | Owns the active mode, state, transcript and records. Every way a turn can end is a `TurnOutcome`. |
 | `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run them against a scripted model; the demo's `-scenario eval` runs them against Apple's model. |
-| `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. In the demo run against Apple's model: 90% agreement over 10 runs (2 distinct answers). |
+| `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. In the run shown in the demo repo, against Apple's model: 70% agreement over 10 runs (2 distinct answers). |
 | `SystemModelBackend` | `OnDeviceModel` backed by Foundation Models' `SystemLanguageModel` (compiled where the SDK has it, iOS/macOS 26+). |
 | `AssistantModesUI` | `AssistantConsoleView`, an inspector that shows each turn's route and the reason for it. |
 
@@ -125,7 +127,15 @@ default: break
 
 ## Verification
 
-(written after CI reports — see below)
+What has actually been run, and where:
+
+- **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's `macos-15` runner (Xcode 16.4, Swift 6.1.2), three jobs on every push:
+  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 92 XCTest tests.
+  - *iOS Simulator build*: both library targets built for `generic/platform=iOS Simulator` with warnings as errors.
+  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 22 one-line mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 22 are killed.
+- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 92 tests and 22/22 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
+- **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
+- **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 
 ## License
 
