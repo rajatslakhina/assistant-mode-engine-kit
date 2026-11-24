@@ -195,7 +195,7 @@ MUTANTS = [
     (
         "ui-keeps-stale-send-active",
         pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
-        "            activeSend = nil // the engine cancelled the old call and is free for the new mode\n",
+        "            if activeSend == releasing { activeSend = nil } // the engine cancelled that call and is free\n",
         "\n",
         T + "ConsoleModelTests/testTransitionReleasesTheInFlightSendSoTheNewModeCanSend",
     ),
@@ -230,9 +230,30 @@ MUTANTS = [
     (
         "ui-send-reentrant",
         pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
-        "guard !isSending, !draft.allSatisfy(\\.isWhitespace) else { return }",
-        "guard !draft.allSatisfy(\\.isWhitespace) else { return }",
+        "guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }",
+        "guard !isTransitioning, let mode = snapshot?.mode else { return }",
         T + "ConsoleModelTests/testSendWhileSendingIsIgnoredAndKeepsTheDraft",
+    ),
+    (
+        "send-ignores-expected-mode",
+        SRC / "AssistantEngine.swift",
+        "        if let expected = expectedMode, expected != mode {",
+        "        if false, let expected = expectedMode, expected != mode {",
+        T + "EngineTests/testPromptForAModeThatIsNoLongerActiveIsRejectedWithoutCallingAModel",
+    ),
+    (
+        "write-ignores-expected-mode",
+        SRC / "AssistantEngine.swift",
+        "        if let expected = expectedMode, expected != currentMode {",
+        "        if false, let expected = expectedMode, expected != currentMode {",
+        T + "EngineTests/testStateWriteForAModeThatIsNoLongerActiveThrowsAndWritesNothing",
+    ),
+    (
+        "ui-sends-during-transition",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }",
+        "guard !isSending, let mode = snapshot?.mode else { return }",
+        T + "ConsoleModelTests/testSendIsIgnoredWhileTransitioning",
     ),
     (
         "private-mode-escalates",

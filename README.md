@@ -55,7 +55,7 @@ This package answers each of these in code, with a test that fails if the answer
 
 **Per-mode transcripts, explicit carried state.** A mode switch clears the transcript and keeps only the keys that transition declares. *Rejected:* one shared transcript across modes. It is simpler, but the previous mode's instructions and answers bleed into the next mode's context, and the budget becomes impossible to reason about. The cost: a user who goes back to capture starts that conversation fresh, apart from whatever state was carried.
 
-**Privacy rules live in the graph, not in a prompt.** `EscalationRule.forbidden` is enforced by `RoutePolicy` before any model is called: a request sent from a private mode never reaches the escalation model. `ModeGraph` closes the other path too: it refuses any transition that carries state out of a private mode into a mode that may escalate, so state written in a private mode can't leak through the next mode's escalation. A prompt that says "don't send this to the cloud" is a request to a model; these are branches the code can't take.
+**Privacy rules live in the graph, not in a prompt.** `EscalationRule.forbidden` is enforced by `RoutePolicy` before any model is called: a request sent from a private mode never reaches the escalation model. A prompt typed in a private mode can't be escalated from the next mode either: `send(_:needs:expectedMode:)` rejects it with `.modeChanged` if a switch lands first, and the bundled console view model pins the mode for every send and write and blocks input while a switch is in flight. `ModeGraph` closes the other path too: it refuses any transition that carries state out of a private mode into a mode that may escalate, so state written in a private mode can't leak through the next mode's escalation. A prompt that says "don't send this to the cloud" is a request to a model; these are branches the code can't take.
 
 **One blocker, in a fixed priority order.** A missing capability is reported first, because no amount of waiting fixes it. Then model availability, which may fix itself. Then budget, which depends on this one prompt. Escalation gates are also ordered: the mode rule (a product decision), then consent (the user's), then connectivity (circumstance), then configuration (ours). The UI can always say exactly why.
 
@@ -74,6 +74,7 @@ This package answers each of these in code, with a test that fails if the answer
 - Everything the routing decision reads is captured before the `await`. `OnDeviceModel.availability` is synchronous on purpose, so the decision can't interleave with a mode switch.
 - The model call runs in an unstructured `Task` the engine holds. It doesn't inherit the caller's cancellation, so `send` forwards it with `withTaskCancellationHandler`. `transition(to:)` may run while it is suspended: it cancels that call, frees the engine so the new mode can send at once, and bumps an epoch. An answer that still comes back is reported as `.discardedModeChanged` instead of being added to the new mode's transcript. Switching away and straight back still discards, because the context the answer was built from is gone.
 - A second `send` during a generation is rejected with `.busy`, not queued or interleaved.
+- A send or state write can name the mode it was made in (`expectedMode`). If a switch landed first, it is rejected (`.modeChanged`) instead of being applied under the new mode's rules.
 - Cancelling the caller's task cancels the model call and ends the turn as `.cancelled`. If the backend ignores cancellation and answers anyway, the answer is not kept.
 - A stale call that finishes after a switch can't free the new mode's call: each call has an id, and only the call that owns the in-flight slot clears it.
 
@@ -102,10 +103,13 @@ python3 Scripts/mutation_check.py   # rebuilds once per mutant; takes a few minu
 ## Install
 
 ```swift
-.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.5")
+.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.6")
 ```
 
 ```swift
+import AssistantModes
+import FoundationModels
+
 let graph = try ModeGraph(initialMode: "capture", modes: [
     ModeDefinition(id: "capture", title: "Capture", instructions: "Turn what the user says into notes.",
                    contextBudget: 1200, writableKeys: ["topic", "notes"],
@@ -115,14 +119,16 @@ let graph = try ModeGraph(initialMode: "capture", modes: [
                    writableKeys: ["steps"], transitions: ["capture": ["topic"]]),
 ])
 let onDevice: any OnDeviceModel
+var window = 4096                            // fallback when the real window can't be read
 if #available(iOS 26.0, macOS 26.0, *) {
     onDevice = SystemModelBackend()          // Apple's on-device model (needs an Xcode 26+ SDK)
+    window = SystemLanguageModel.default.contextSize   // iOS 26.4 SDK API, back-deployed to 26.0
 } else {
     onDevice = ClosureModel(availability: .unavailable(.deviceNotEligible)) { _ in "" }
 }
 let engine = try AssistantEngine(
     graph: graph,
-    profile: .iPhone(contextTokens: 4096),
+    profile: .iPhone(contextTokens: window),
     onDevice: onDevice,
     escalation: myClaudeClient,              // your server-backed EscalationModel, or nil
     cloudConsent: false
@@ -140,11 +146,11 @@ default: break
 What has actually been run, and where:
 
 - **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's hosted runners, four jobs on every push: three on `macos-15` (Xcode 16.4, Swift 6.1.2) and one on `macos-26`:
-  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 104 XCTest tests.
+  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 108 XCTest tests.
   - *iOS Simulator build*: both library targets built for `generic/platform=iOS Simulator` with warnings as errors.
   - *Foundation Models build*: on GitHub's `macos-26` runner, `swift build` with warnings as errors against an SDK that has Foundation Models, plus a check that `SystemModelBackend` was actually compiled in rather than skipped by `#if canImport`.
-  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 38 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 38 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
-- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 104 tests and 38/38 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
+  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 41 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 41 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
+- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 108 tests and 41/41 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
 - **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
 - **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 

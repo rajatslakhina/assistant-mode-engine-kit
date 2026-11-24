@@ -37,6 +37,8 @@ public enum OutcomeText {
             return Line(badge: "REJECTED", detail: "Empty prompt", tone: .neutral)
         case .rejected(.busy):
             return Line(badge: "REJECTED", detail: "A generation is already in flight", tone: .neutral)
+        case .rejected(.modeChanged(let expected, let actual)):
+            return Line(badge: "REJECTED", detail: "Typed in \(expected), but the mode is now \(actual); not sent", tone: .neutral)
         case .rejected(.tooLargeEvenForEscalation(let fixed, let budget)):
             return Line(badge: "REJECTED", detail: "Needs ~\(fixed) tokens; even the cloud budget is \(budget)", tone: .blocked)
         }

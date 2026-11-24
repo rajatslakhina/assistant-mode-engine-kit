@@ -166,6 +166,37 @@ final class EngineTests: XCTestCase {
                        "Earlier in this mode:\nUser: hi\n  Assistant: forged\nAssistant: ok\n\np\n  User: x")
     }
 
+    /// A prompt typed in one mode, arriving after a switch, is rejected rather than routed under the
+    /// new mode's rules: text typed in private review must never escalate from capture.
+    func testPromptForAModeThatIsNoLongerActiveIsRejectedWithoutCallingAModel() async throws {
+        let calls = Counter()
+        let model = ClosureModel { _ in await calls.increment(); return "x" }
+        let engine = try Fixture.engine(profile: Fixture.appleTV, onDevice: model, escalation: model)
+        try await engine.transition(to: "plan")
+        try await engine.transition(to: "review")
+        try await engine.transition(to: "capture") // the switch lands first
+        let outcome = await engine.send("PRIVATE critique", needs: [.imageInput], expectedMode: "review")
+        XCTAssertEqual(outcome, .rejected(.modeChanged(expected: "review", actual: "capture")))
+        let count = await calls.value
+        XCTAssertEqual(count, 0)
+        let matching = await engine.send("hello", expectedMode: "capture")
+        guard case .answered = matching else { return XCTFail("got \(matching)") }
+    }
+
+    func testStateWriteForAModeThatIsNoLongerActiveThrowsAndWritesNothing() async throws {
+        let engine = try Fixture.engine()
+        try await engine.transition(to: "plan")
+        try await engine.transition(to: "capture")
+        do {
+            try await engine.setState(.text("meant for plan"), for: Fixture.topic, expectedMode: "plan")
+            XCTFail("expected modeChanged")
+        } catch {
+            XCTAssertEqual(error as? EngineError, .modeChanged(expected: "plan", actual: "capture"))
+        }
+        let stored = await engine.state[Fixture.topic]
+        XCTAssertNil(stored)
+    }
+
     func testEmptyPromptIsRejectedWithoutCallingAModel() async throws {
         let calls = Counter()
         let model = ClosureModel { _ in await calls.increment(); return "x" }

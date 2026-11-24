@@ -47,7 +47,10 @@ jobs:
       - name: Build, warnings as errors
         run: swift build -Xswiftc -warnings-as-errors
       - name: Prove SystemModelBackend was compiled in (not skipped by canImport)
-        run: find .build -name 'SystemModelBackend*.o' -print0 | xargs -0 nm | grep -q 'SystemModelBackend'
+        run: |
+          objects=$(find .build -name 'SystemModelBackend*.o')
+          test "$(echo "$objects" | grep -c .)" -eq 1 || { echo "expected exactly one object file, got: $objects"; exit 1; }
+          nm "$objects" | grep -q '18SystemModelBackendV'
 
   mutation:
     name: Mutation check (each guard must be caught by its test)

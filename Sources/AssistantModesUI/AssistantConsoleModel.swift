@@ -31,7 +31,11 @@ public final class AssistantConsoleModel {
     public func send() async {
         // One send at a time, and never an empty one: the view disables Send for both, but this is
         // public API, and a second call would clear the draft only to have the engine reject it.
-        guard !isSending, !draft.allSatisfy(\.isWhitespace) else { return }
+        guard !draft.allSatisfy(\.isWhitespace) else { return }
+        if snapshot == nil { await refresh() }
+        // Checked after the only await above, with no suspension before the send starts; and the
+        // mode the user typed in is pinned, so the engine rejects the prompt if a switch lands first.
+        guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }
         let prompt = draft
         let needs: Set<Capability> = needsImageInput ? [.imageInput] : []
         draft = ""
@@ -40,7 +44,7 @@ public final class AssistantConsoleModel {
         let id = nextSendID
         nextSendID &+= 1
         activeSend = id
-        _ = await engine.send(prompt, needs: needs)
+        _ = await engine.send(prompt, needs: needs, expectedMode: mode)
         // A mode switch may have released this send already, and a newer send may own the slot.
         if activeSend == id { activeSend = nil }
         await refresh()
@@ -52,11 +56,19 @@ public final class AssistantConsoleModel {
     private var activeSend: UInt64?
     private var nextSendID: UInt64 = 0
 
+    /// True while a mode switch is in flight. Sends, writes and further switches wait for it, so
+    /// nothing typed in the old mode is applied under the new mode's rules.
+    public private(set) var isTransitioning = false
+
     public func transition(to mode: ModeID) async {
+        guard !isTransitioning else { return }
+        isTransitioning = true
+        defer { isTransitioning = false }
+        let releasing = activeSend
         do {
             lastTransition = try await engine.transition(to: mode)
             lastError = nil
-            activeSend = nil // the engine cancelled the old call and is free for the new mode
+            if activeSend == releasing { activeSend = nil } // the engine cancelled that call and is free
             // An unsent draft belongs to the mode it was typed in (it may be private); don't carry it.
             draft = ""
             needsImageInput = false
@@ -67,8 +79,9 @@ public final class AssistantConsoleModel {
     }
 
     public func write(_ value: StateValue?, for key: StateKey) async {
+        guard !isTransitioning else { return }
         do {
-            try await engine.setState(value, for: key)
+            try await engine.setState(value, for: key, expectedMode: snapshot?.mode)
             lastError = nil
         } catch {
             lastError = String(describing: error)

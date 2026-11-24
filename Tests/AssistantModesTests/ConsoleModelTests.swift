@@ -107,6 +107,47 @@ final class ConsoleModelTests: XCTestCase {
         await console.send() // an empty draft is ignored too
     }
 
+    /// A send started while a switch out of a private mode is in flight must not go anywhere: it is
+    /// ignored (the draft is cleared by the switch, never sent), and the cloud model is never called.
+    func testSendDuringASwitchOutOfAPrivateModeNeverReachesTheCloud() async throws {
+        let cloudCalls = Counter()
+        let cloud = ClosureModel { _ in await cloudCalls.increment(); return "cloud" }
+        let console = AssistantConsoleModel(
+            engine: try Fixture.engine(profile: Fixture.appleTV, escalation: cloud), backendLabel: "test"
+        )
+        await console.transition(to: "plan")
+        await console.transition(to: "review")
+        console.draft = "PRIVATE critique"
+        console.needsImageInput = true
+        let switching = Task { await console.transition(to: "capture") }
+        let sending = Task { await console.send() }
+        await switching.value
+        await sending.value
+        let count = await cloudCalls.value
+        XCTAssertEqual(count, 0, "text typed in private review must never be escalated")
+        XCTAssertEqual(console.snapshot?.mode, "capture")
+        XCTAssertFalse(console.isSending)
+        XCTAssertFalse(console.isTransitioning)
+        let generating = await console.engine.isGenerating
+        XCTAssertFalse(generating)
+    }
+
+    /// While a switch is in flight, `send()` is ignored and keeps the user's draft untouched.
+    func testSendIsIgnoredWhileTransitioning() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
+        await console.refresh()
+        console.draft = "typed in capture"
+        let switching = Task { await console.transition(to: "plan") }
+        await Task.yield() // let the switch start and mark itself in flight
+        XCTAssertTrue(console.isTransitioning)
+        await console.send()
+        XCTAssertEqual(console.snapshot?.transcript.count ?? 0, 0)
+        await switching.value
+        XCTAssertFalse(console.isTransitioning)
+        let records = await console.engine.records
+        XCTAssertTrue(records.isEmpty, "nothing was sent")
+    }
+
     /// An unsent draft typed in one mode (possibly private) must not survive a switch to another.
     func testSuccessfulTransitionClearsTheDraftAndImageFlag() async throws {
         let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")

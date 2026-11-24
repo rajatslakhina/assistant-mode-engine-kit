@@ -32,6 +32,8 @@ public enum EngineError: Error, Equatable, Sendable {
     case unknownMode(ModeID)
     case illegalTransition(from: ModeID, to: ModeID)
     case keyNotWritable(key: StateKey, mode: ModeID)
+    /// The caller expected a different active mode (a switch landed first). Nothing was written.
+    case modeChanged(expected: ModeID, actual: ModeID)
 }
 
 public struct TransitionReport: Equatable, Sendable {
@@ -57,6 +59,9 @@ public enum RejectionReason: Equatable, Sendable {
     /// One generation at a time: a second `send` while one is in flight is rejected, not queued.
     case busy
     case tooLargeEvenForEscalation(fixed: Int, budget: Int)
+    /// The caller expected a different active mode (a switch landed first). Nothing was sent, so
+    /// text typed in one mode (possibly a private one) can't be routed under another mode's rules.
+    case modeChanged(expected: ModeID, actual: ModeID)
 }
 
 public enum TurnOutcome: Equatable, Sendable {
@@ -192,7 +197,13 @@ public actor AssistantEngine {
 
     /// Writes one state slot. Only keys the active mode declares writable are accepted, so the UI
     /// can't leave a value behind that the next mode's instructions never mention.
-    public func setState(_ value: StateValue?, for key: StateKey) throws {
+    ///
+    /// Pass `expectedMode` (the mode the user saw when they made the change) so a value meant for one
+    /// mode can't land in another because a switch got there first.
+    public func setState(_ value: StateValue?, for key: StateKey, expectedMode: ModeID? = nil) throws {
+        if let expected = expectedMode, expected != currentMode {
+            throw EngineError.modeChanged(expected: expected, actual: currentMode)
+        }
         guard activeDefinition.writableKeys.contains(key) else {
             throw EngineError.keyNotWritable(key: key, mode: currentMode)
         }
@@ -229,10 +240,17 @@ public actor AssistantEngine {
 
     /// Sends one prompt in the active mode. Never throws: every way a turn can end is a `TurnOutcome`,
     /// and every outcome is recorded.
-    public func send(_ prompt: String, needs: Set<Capability> = []) async -> TurnOutcome {
+    ///
+    /// Pass `expectedMode` (the mode the user typed the prompt in). If a switch landed first, the
+    /// prompt is rejected with `.modeChanged` instead of being routed under the new mode's rules,
+    /// so text typed in a private mode can never be escalated from the next one.
+    public func send(_ prompt: String, needs: Set<Capability> = [], expectedMode: ModeID? = nil) async -> TurnOutcome {
         let start = clock.nowNanoseconds()
         let mode = currentMode
         let definition = activeDefinition
+        if let expected = expectedMode, expected != mode {
+            return finish(.rejected(.modeChanged(expected: expected, actual: mode)), mode: mode, decision: nil, start: start)
+        }
         guard !prompt.allSatisfy(\.isWhitespace) else {
             return finish(.rejected(.emptyPrompt), mode: mode, decision: nil, start: start)
         }

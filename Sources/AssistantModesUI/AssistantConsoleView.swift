@@ -57,7 +57,7 @@ public struct AssistantConsoleView: View {
                             .background(isCurrent ? Color.accentColor : Color.secondary.opacity(0.15), in: Capsule())
                             .foregroundStyle(isCurrent ? Color.white : Color.primary)
                     }
-                    .disabled(isCurrent || !legal.contains(id))
+                    .disabled(isCurrent || !legal.contains(id) || model.isTransitioning)
                     .accessibilityLabel(isCurrent ? "Current mode \(id.rawValue)" : "Switch to \(id.rawValue)")
                 }
             }
@@ -192,7 +192,7 @@ public struct AssistantConsoleView: View {
                     .buttonStyle(.borderedProminent)
                     // One generation at a time: the engine would reject a second send as busy, and the
                     // cleared draft would be lost.
-                    .disabled(model.draft.allSatisfy(\.isWhitespace) || model.isSending)
+                    .disabled(model.draft.allSatisfy(\.isWhitespace) || model.isSending || model.isTransitioning)
             }
             Toggle("Mark as needing imageInput (routing only, no image is sent)", isOn: $model.needsImageInput)
                 .font(.caption)
