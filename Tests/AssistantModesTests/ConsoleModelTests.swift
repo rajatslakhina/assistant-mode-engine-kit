@@ -104,7 +104,65 @@ final class ConsoleModelTests: XCTestCase {
         await first.value
         let count = await calls.value
         XCTAssertEqual(count, 1)
-        await console.send() // an empty draft is ignored too
+        let recordsBefore = await console.engine.records.count
+        console.draft = "   "
+        await console.send() // a blank draft is ignored too: nothing reaches the engine
+        let recordsAfter = await console.engine.records.count
+        XCTAssertEqual(recordsAfter, recordsBefore)
+    }
+
+    /// While a switch is in flight, `write` is ignored: a value meant for the old mode is not applied.
+    func testWriteIsIgnoredWhileTransitioning() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
+        await console.refresh()
+        let switching = Task { await console.transition(to: "plan") }
+        await Task.yield()
+        XCTAssertTrue(console.isTransitioning)
+        await console.write(.text("typed in capture"), for: Fixture.topic)
+        await switching.value
+        let stored = await console.engine.state[Fixture.topic]
+        XCTAssertNil(stored)
+        XCTAssertNil(console.lastError)
+    }
+
+    /// A second switch while one is in flight is ignored, not queued behind it.
+    func testSecondTransitionWhileTransitioningIsIgnored() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
+        await console.refresh()
+        let first = Task { await console.transition(to: "plan") }
+        await Task.yield()
+        XCTAssertTrue(console.isTransitioning)
+        await console.transition(to: "review")
+        await first.value
+        let mode = await console.engine.currentMode
+        XCTAssertEqual(mode, "plan")
+    }
+
+    /// The console pins the mode it last showed. If the engine moved on without the console seeing
+    /// it, a send is rejected by the engine and never reaches a model.
+    func testSendPinsTheModeTheConsoleShowed() async throws {
+        let calls = Counter()
+        let model = ClosureModel { _ in await calls.increment(); return "x" }
+        let console = AssistantConsoleModel(engine: try Fixture.engine(onDevice: model, escalation: model), backendLabel: "test")
+        await console.refresh()
+        try await console.engine.transition(to: "plan") // behind the console's back
+        console.draft = "typed in capture"
+        await console.send()
+        let count = await calls.value
+        XCTAssertEqual(count, 0)
+        let last = await console.engine.records.last?.outcome
+        XCTAssertEqual(last, .rejected(.modeChanged(expected: "capture", actual: "plan")))
+    }
+
+    /// The same pin applies to writes: a value meant for the mode the console showed is not applied.
+    func testWritePinsTheModeTheConsoleShowed() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
+        await console.refresh()
+        try await console.engine.transition(to: "plan") // behind the console's back
+        await console.write(.text("meant for capture"), for: Fixture.topic)
+        XCTAssertEqual(console.lastError, String(describing: EngineError.modeChanged(expected: "capture", actual: "plan")))
+        let stored = await console.engine.state[Fixture.topic]
+        XCTAssertNil(stored)
     }
 
     /// A send started while a switch out of a private mode is in flight must not go anywhere: it is
@@ -180,6 +238,8 @@ final class ConsoleModelTests: XCTestCase {
                        "Needs ~120000 tokens; even the cloud budget is 100000")
         XCTAssertEqual(OutcomeText.line(for: .rejected(.busy)).detail, "A generation is already in flight")
         XCTAssertEqual(OutcomeText.line(for: .rejected(.emptyPrompt)).detail, "Empty prompt")
+        XCTAssertEqual(OutcomeText.line(for: .rejected(.modeChanged(expected: "review", actual: "capture"))).detail,
+                       "Typed in review, but the mode is now capture; not sent")
         XCTAssertEqual(OutcomeText.line(for: .failed(route: .escalated, message: "down")).detail, "escalated: down")
         XCTAssertEqual(OutcomeText.line(for: .cancelled(route: .onDevice)).detail, "onDevice generation cancelled")
         XCTAssertEqual(OutcomeText.reason(.modelUnavailable(.appleIntelligenceNotEnabled)),

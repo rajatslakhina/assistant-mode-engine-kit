@@ -29,13 +29,12 @@ public final class AssistantConsoleModel {
 
     /// Sends the current draft. The draft is cleared before the await so a second tap can't resend it.
     public func send() async {
-        // One send at a time, and never an empty one: the view disables Send for both, but this is
-        // public API, and a second call would clear the draft only to have the engine reject it.
-        guard !draft.allSatisfy(\.isWhitespace) else { return }
+        // One send at a time, never during a switch, never an empty one. The view disables Send for
+        // all three, but this is public API. Everything is checked in one guard after the only await
+        // (the first-use refresh), with no suspension between the guard and the send; and the mode the
+        // user typed in is pinned, so the engine rejects the prompt if a switch lands first anyway.
         if snapshot == nil { await refresh() }
-        // Checked after the only await above, with no suspension before the send starts; and the
-        // mode the user typed in is pinned, so the engine rejects the prompt if a switch lands first.
-        guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }
+        guard !isSending, !isTransitioning, !draft.allSatisfy(\.isWhitespace), let mode = snapshot?.mode else { return }
         let prompt = draft
         let needs: Set<Capability> = needsImageInput ? [.imageInput] : []
         draft = ""
@@ -78,10 +77,13 @@ public final class AssistantConsoleModel {
         await refresh()
     }
 
+    /// Writes one state slot in the mode the user is looking at. Ignored during a switch; rejected by
+    /// the engine (`lastError` is set, nothing is written) if the mode changed since the last refresh.
     public func write(_ value: StateValue?, for key: StateKey) async {
-        guard !isTransitioning else { return }
+        if snapshot == nil { await refresh() }
+        guard !isTransitioning, let mode = snapshot?.mode else { return }
         do {
-            try await engine.setState(value, for: key, expectedMode: snapshot?.mode)
+            try await engine.setState(value, for: key, expectedMode: mode)
             lastError = nil
         } catch {
             lastError = String(describing: error)

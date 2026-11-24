@@ -230,8 +230,8 @@ MUTANTS = [
     (
         "ui-send-reentrant",
         pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
-        "guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }",
-        "guard !isTransitioning, let mode = snapshot?.mode else { return }",
+        "guard !isSending, !isTransitioning, !draft.allSatisfy(\\.isWhitespace), let mode = snapshot?.mode else { return }",
+        "guard !isTransitioning, !draft.allSatisfy(\\.isWhitespace), let mode = snapshot?.mode else { return }",
         T + "ConsoleModelTests/testSendWhileSendingIsIgnoredAndKeepsTheDraft",
     ),
     (
@@ -251,9 +251,44 @@ MUTANTS = [
     (
         "ui-sends-during-transition",
         pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
-        "guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }",
-        "guard !isSending, let mode = snapshot?.mode else { return }",
+        "guard !isSending, !isTransitioning, !draft.allSatisfy(\\.isWhitespace), let mode = snapshot?.mode else { return }",
+        "guard !isSending, !draft.allSatisfy(\\.isWhitespace), let mode = snapshot?.mode else { return }",
         T + "ConsoleModelTests/testSendIsIgnoredWhileTransitioning",
+    ),
+    (
+        "ui-sends-blank-draft",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "guard !isSending, !isTransitioning, !draft.allSatisfy(\\.isWhitespace), let mode = snapshot?.mode else { return }",
+        "guard !isSending, !isTransitioning, let mode = snapshot?.mode else { return }",
+        T + "ConsoleModelTests/testSendWhileSendingIsIgnoredAndKeepsTheDraft",
+    ),
+    (
+        "ui-writes-during-transition",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "        guard !isTransitioning, let mode = snapshot?.mode else { return }\n        do {\n            try await engine.setState",
+        "        guard let mode = snapshot?.mode else { return }\n        do {\n            try await engine.setState",
+        T + "ConsoleModelTests/testWriteIsIgnoredWhileTransitioning",
+    ),
+    (
+        "ui-write-unpinned",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "try await engine.setState(value, for: key, expectedMode: mode)",
+        "try await engine.setState(value, for: key, expectedMode: nil); _ = mode",
+        T + "ConsoleModelTests/testWritePinsTheModeTheConsoleShowed",
+    ),
+    (
+        "ui-send-unpinned",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "_ = await engine.send(prompt, needs: needs, expectedMode: mode)",
+        "_ = await engine.send(prompt, needs: needs, expectedMode: nil); _ = mode",
+        T + "ConsoleModelTests/testSendPinsTheModeTheConsoleShowed",
+    ),
+    (
+        "ui-transition-reentrant",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "        guard !isTransitioning else { return }\n        isTransitioning = true",
+        "        isTransitioning = true",
+        T + "ConsoleModelTests/testSecondTransitionWhileTransitioningIsIgnored",
     ),
     (
         "private-mode-escalates",

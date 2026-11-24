@@ -80,7 +80,8 @@ public enum TurnOutcome: Equatable, Sendable {
 /// Records outlive the transcript (they survive trimming and mode switches, up to `maxRecords`),
 /// so they keep less: plans carry counts and token estimates but no turn text, and an answer or a
 /// failure message from a private (`.forbidden`) mode is replaced by a redaction, so the engine and
-/// its records don't retain private text after the user leaves that mode. (Memory is released, not
+/// its records don't retain private text after the user leaves that mode (a call the switch cancelled
+/// keeps its request until the backend returns; its result is then discarded). (Memory is released, not
 /// zeroed; whatever the caller keeps from `send`'s return value is the caller's responsibility.)
 public struct TurnRecord: Equatable, Sendable {
     /// The text stored instead of an answer given in a private mode.
