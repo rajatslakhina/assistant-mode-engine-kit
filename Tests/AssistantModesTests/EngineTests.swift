@@ -126,9 +126,6 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(request.flattenedPrompt.contains("passport"))
     }
 
-    /// The plan's token count must cover what is actually sent: the instructions plus the whole
-    /// flattened prompt, scaffolding included. A budgeter that only counted the user's words would
-    /// under-count by the headers and "User:"/"Assistant:" prefixes, and this test would fail.
     /// The model receives exactly the turns the plan kept, not the whole transcript: when the device
     /// budget drops a turn, that turn must not be sent.
     func testModelReceivesOnlyTheTurnsThePlanKept() async throws {
@@ -164,6 +161,9 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(count, 0, "no request may leave the device for a cancelled caller")
     }
 
+    /// The plan's token count must cover what is actually sent: the instructions plus the whole
+    /// flattened prompt, scaffolding included. A budgeter that only counted the user's words would
+    /// under-count by the headers and "User:"/"Assistant:" prefixes, and this test would fail.
     func testBudgetCoversEverythingTheModelIsSent() async throws {
         let seen = RequestLog()
         let model = ClosureModel { request in await seen.append(request); return "answer \(request.prompt)" }
