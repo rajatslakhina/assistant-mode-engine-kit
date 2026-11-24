@@ -5,7 +5,7 @@
 [![CI](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)
 ![Swift 6](https://img.shields.io/badge/Swift-6-orange) ![iOS 17+ · macOS 14+](https://img.shields.io/badge/iOS%2017%2B%20%C2%B7%20macOS%2014%2B-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey)
 
-Demo app: (added after the companion repo is pushed — see below)
+**Demo app:** [assistant-mode-engine-demo-app](https://github.com/rajatslakhina/assistant-mode-engine-demo-app) — a runnable three-mode assistant that consumes this package from GitHub and shows every turn's route and the reason for it.
 
 <img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, and below it an over-budget prompt escalated to Claude after consent was granted">
 
@@ -152,7 +152,7 @@ What has actually been run, and where:
   - *Foundation Models build*: on GitHub's `macos-26` runner, `swift build` with warnings as errors against an SDK that has Foundation Models, plus a check that `SystemModelBackend` was actually compiled in rather than skipped by `#if canImport`.
   - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 48 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 48 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
 - **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 114 tests and 48/48 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
-- **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
+- **On a Simulator**: the [demo app](https://github.com/rajatslakhina/assistant-mode-engine-demo-app) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
 - **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 
 ## License
