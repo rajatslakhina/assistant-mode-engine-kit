@@ -58,6 +58,55 @@ final class ConsoleModelTests: XCTestCase {
         XCTAssertFalse(console.isSending)
     }
 
+    /// A stale console send finishing must not release a newer send that is still in flight.
+    func testAStaleSendFinishingDoesNotReleaseTheNewerSend() async throws {
+        let captureGate = Gate()
+        let planGate = Gate()
+        let model = ClosureModel { request in
+            if request.mode == "capture" { await captureGate.wait(); return "stale" }
+            await planGate.wait()
+            return "fresh"
+        }
+        let console = AssistantConsoleModel(engine: try Fixture.engine(onDevice: model), backendLabel: "test")
+        console.draft = "slow"
+        let stale = Task { await console.send() }
+        let staleArrived = await waitUntil { await captureGate.arrivals == 1 }
+        XCTAssertTrue(staleArrived)
+        await console.transition(to: "plan")
+        console.draft = "plan turn"
+        let fresh = Task { await console.send() }
+        let freshArrived = await waitUntil { await planGate.arrivals == 1 }
+        XCTAssertTrue(freshArrived)
+
+        await captureGate.open()
+        await stale.value
+        XCTAssertTrue(console.isSending, "the plan send is still in flight")
+        await planGate.open()
+        await fresh.value
+        XCTAssertFalse(console.isSending)
+    }
+
+    /// `send()` is public: a second call while one is in flight is ignored, and keeps the draft.
+    func testSendWhileSendingIsIgnoredAndKeepsTheDraft() async throws {
+        let gate = Gate()
+        let calls = Counter()
+        let model = ClosureModel { _ in await calls.increment(); await gate.wait(); return "ok" }
+        let console = AssistantConsoleModel(engine: try Fixture.engine(onDevice: model), backendLabel: "test")
+        console.draft = "first"
+        let first = Task { await console.send() }
+        let arrived = await waitUntil { await gate.arrivals == 1 }
+        XCTAssertTrue(arrived)
+        console.draft = "second"
+        await console.send()
+        XCTAssertEqual(console.draft, "second", "the ignored send must not clear the draft")
+        XCTAssertTrue(console.isSending)
+        await gate.open()
+        await first.value
+        let count = await calls.value
+        XCTAssertEqual(count, 1)
+        await console.send() // an empty draft is ignored too
+    }
+
     /// An unsent draft typed in one mode (possibly private) must not survive a switch to another.
     func testSuccessfulTransitionClearsTheDraftAndImageFlag() async throws {
         let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")

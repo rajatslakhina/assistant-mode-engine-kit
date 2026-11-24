@@ -79,16 +79,16 @@ This package answers each of these in code, with a test that fails if the answer
 
 ## Honest limits
 
-- **The 27.3 beta APIs are not used.** This package does not call `DynamicInstructionsGroup`, `@SessionState` or the other APIs seen in the Xcode 27.3 beta SDK diff. They are undocumented and were not in the toolchain used here (Xcode 27.2). The engine implements the same ideas in its own types, so it runs on shipping SDKs. Moving to Apple's types when they ship is an adapter change, not a redesign.
+- **Apple's own instruction-group APIs are not used.** The Xcode 27.2 SDK used here already ships `DynamicInstructions` and `LanguageModelSession.DynamicProfile` (with `onActivate`/`onDeactivate`) for iOS 27; the 27.3 beta SDK diff adds `DynamicInstructionsGroup` and `@SessionState`, which are not in 27.2. The engine doesn't build on them for two reasons: they require iOS 27 while this package targets iOS 17, and they shape one Foundation Models session, while the engine's rules (budgets, carried state, privacy, routing) have to hold across two backends, Apple's model and the cloud one. Mapping a mode to a `DynamicProfile` inside `SystemModelBackend` on iOS 27 is a natural next step and an adapter change, not a redesign.
 - **The platform presets are data, not verified facts.** `appleTV(...)` encodes what the SDK diff reports. It has not been checked on Apple TV hardware. Override the presets with what your target OS actually ships.
-- **Token counts are estimates.** The budget is an upper bound only for estimators that round each piece up, like the default. It is not the model's tokenizer.
+- **Token counts are estimates.** The budget is an upper bound only for estimators that round each piece up, like the default. Foundation Models has a real tokenizer (`tokenCount(for:)`, iOS 26.4+) and reports the real window (`SystemLanguageModel.contextSize`), but `tokenCount` is `async`, and the routing decision is taken synchronously inside one actor step so it can't interleave with a mode switch. Calibrate `bytesPerToken` against `tokenCount` offline, and pass `contextSize` as the profile's `onDeviceContextTokens` (the demo's `-systemModel` run does).
 - **Capabilities are routing declarations, not payloads.** `send(_:needs: [.imageInput])` decides where a request may go; the package does not carry image data, and image tokens are not budgeted. Carrying the attachment to the chosen backend is the app's job.
 - **Escalation sends the active mode's instructions, state and history to your cloud model.** That is the point of escalating, so a mode with sensitive state should be `forbidden`, and consent should be explicit. Revoking consent does not recall a request already sent, and changing state during a generation does not cancel it. The escalation budget (`escalationContextTokens`, 100,000 by default) is input-only: set it to your cloud model's window minus your longest expected answer. The demo's Claude backend is simulated; a real one belongs behind your own server, never with an API key in the app.
 - **Online and consent are caller-set flags.** There is no network monitoring, consent is one engine-wide boolean (not per mode or per request), and `TurnRecord` records the route and reason but not which data left the device.
-- **Records keep ordinary answers in memory.** `TurnRecord`s keep each non-private answer's text and failure message (which may echo the request), but not the turns sent, until they age out of the `maxRecords` ring (200 by default); private-mode answers and failure messages are redacted. Clear or shrink the ring if that matters for your app.
+- **Records keep ordinary answers in memory.** `TurnRecord`s keep each non-private answer's text and failure message (which may echo the request), but not the turns sent, until they age out of the `maxRecords` ring (200 by default); private-mode answers and failure messages are redacted. Clear or shrink the ring if that matters for your app. Memory is released, not zeroed, and whatever a caller keeps from `send`'s return value is outside the engine's control.
 - **Prompt injection is not prevented.** User text never goes in the instructions slot and is fenced by indentation, but a model can still be talked into things by its prompt.
 - **The evals check routing and state, not answer quality.** `StabilityProbe` measures how much the output varies, not whether it is correct, and its numbers change from run to run.
-- **`SystemModelBackend` is not covered by unit tests.** CI runners don't ship Foundation Models. It was exercised in the demo app on an iOS 27.2 Simulator on a Mac with Apple Intelligence (see the demo repo).
+- **`SystemModelBackend` is not covered by unit tests.** CI compiles it (a `macos-26` job builds the package with the Foundation Models SDK) but can't run it: hosted runners have no Apple Intelligence. It was exercised in the demo app on an iOS 27.2 Simulator on a Mac with Apple Intelligence (see the demo repo).
 - **No tvOS or watchOS build.** The package declares and CI builds iOS and macOS only; Apple TV is a capability profile, and `SystemModelBackend` is not compiled for tvOS or watchOS.
 
 ## Run it locally
@@ -102,7 +102,7 @@ python3 Scripts/mutation_check.py   # rebuilds once per mutant; takes a few minu
 ## Install
 
 ```swift
-.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.4")
+.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.5")
 ```
 
 ```swift
@@ -139,11 +139,12 @@ default: break
 
 What has actually been run, and where:
 
-- **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's `macos-15` runner (Xcode 16.4, Swift 6.1.2), three jobs on every push:
-  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 101 XCTest tests.
+- **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's hosted runners, four jobs on every push: three on `macos-15` (Xcode 16.4, Swift 6.1.2) and one on `macos-26`:
+  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 104 XCTest tests.
   - *iOS Simulator build*: both library targets built for `generic/platform=iOS Simulator` with warnings as errors.
-  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 33 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 33 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
-- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 101 tests and 33/33 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
+  - *Foundation Models build*: on GitHub's `macos-26` runner, `swift build` with warnings as errors against an SDK that has Foundation Models, plus a check that `SystemModelBackend` was actually compiled in rather than skipped by `#if canImport`.
+  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 38 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 38 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
+- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 104 tests and 38/38 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
 - **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
 - **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 

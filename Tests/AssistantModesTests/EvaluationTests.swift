@@ -51,6 +51,19 @@ final class EvaluationTests: XCTestCase {
         XCTAssertTrue(result.failures.allSatisfy { $0.actual == "on-device" })
     }
 
+    /// Every kind of step must be able to fail, not just `send`: a wrong transition expectation, a
+    /// wrong write expectation and a wrong state expectation are each reported.
+    func testTransitionWriteAndStateStepsReportFailures() async throws {
+        let wrong = EvalCase(name: "wrong", steps: [
+            .transition(to: "review", expect: .succeeds),       // capture → review is illegal
+            .write(Fixture.steps, .list(["x"]), expect: .succeeds), // capture can't write steps
+            .expectState(Fixture.topic, .text("x")),            // topic was never written
+        ])
+        let result = await EvalRunner.run(wrong, on: try Fixture.engine())
+        XCTAssertEqual(result.failures.map(\.stepIndex), [0, 1, 2])
+        XCTAssertFalse(result.passed)
+    }
+
     func testAnEmptyEvalCaseDoesNotCountAsPassing() async throws {
         let result = await EvalRunner.run(EvalCase(name: "empty", steps: []), on: try Fixture.engine())
         XCTAssertFalse(result.passed)

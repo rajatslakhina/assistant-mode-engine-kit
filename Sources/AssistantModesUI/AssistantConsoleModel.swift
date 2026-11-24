@@ -29,6 +29,9 @@ public final class AssistantConsoleModel {
 
     /// Sends the current draft. The draft is cleared before the await so a second tap can't resend it.
     public func send() async {
+        // One send at a time, and never an empty one: the view disables Send for both, but this is
+        // public API, and a second call would clear the draft only to have the engine reject it.
+        guard !isSending, !draft.allSatisfy(\.isWhitespace) else { return }
         let prompt = draft
         let needs: Set<Capability> = needsImageInput ? [.imageInput] : []
         draft = ""

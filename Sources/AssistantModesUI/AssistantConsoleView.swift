@@ -133,8 +133,8 @@ public struct AssistantConsoleView: View {
         }
     }
 
-    /// The active mode's transcript, in full. The turn log above shows routing and, for private
-    /// modes, a redaction; the answer itself lives here, and is cleared when the mode is left.
+    /// The active mode's last three turns. The turn log above shows routing and, for private modes,
+    /// a redaction; the answers themselves live here, and are cleared when the mode is left.
     private func conversationCard(_ snapshot: EngineSnapshot) -> some View {
         card(title: "Conversation in this mode") {
             if snapshot.transcript.isEmpty {

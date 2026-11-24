@@ -36,6 +36,19 @@ jobs:
           -destination 'generic/platform=iOS Simulator'
           SWIFT_TREAT_WARNINGS_AS_ERRORS=YES
 
+  foundation-models:
+    name: Build with the Foundation Models SDK (compiles SystemModelBackend)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain
+        run: swift --version && xcodebuild -version
+      - name: Build, warnings as errors
+        run: swift build -Xswiftc -warnings-as-errors
+      - name: Prove SystemModelBackend was compiled in (not skipped by canImport)
+        run: find .build -name 'SystemModelBackend*.o' -print0 | xargs -0 nm | grep -q 'SystemModelBackend'
+
   mutation:
     name: Mutation check (each guard must be caught by its test)
     runs-on: macos-15
