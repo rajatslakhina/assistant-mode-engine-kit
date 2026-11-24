@@ -15,10 +15,10 @@ final class ConsoleModelTests: XCTestCase {
         XCTAssertTrue(arrived)
         XCTAssertEqual(console.draft, "", "a second tap must not resend the same draft")
         XCTAssertFalse(console.needsImageInput)
-        XCTAssertEqual(console.sendsInFlight, 1)
+        XCTAssertTrue(console.isSending)
         await gate.open()
         await sending.value
-        XCTAssertEqual(console.sendsInFlight, 0)
+        XCTAssertFalse(console.isSending)
         XCTAssertEqual(console.snapshot?.transcript.map(\.user), ["hello"])
     }
 
@@ -31,6 +31,31 @@ final class ConsoleModelTests: XCTestCase {
         await console.transition(to: "plan")
         XCTAssertNil(console.lastError)
         XCTAssertEqual(console.lastTransition?.to, "plan")
+    }
+
+    /// A mode switch releases the UI's in-flight send at once, as the engine does: the new mode can
+    /// send even if the old backend ignores cancellation and is still running.
+    func testTransitionReleasesTheInFlightSendSoTheNewModeCanSend() async throws {
+        let gate = Gate()
+        let model = ClosureModel { request in
+            if request.mode == "capture" { await gate.wait(); return "stale" } // ignores cancellation
+            return "fresh"
+        }
+        let console = AssistantConsoleModel(engine: try Fixture.engine(onDevice: model), backendLabel: "test")
+        console.draft = "slow"
+        let stale = Task { await console.send() }
+        let arrived = await waitUntil { await gate.arrivals == 1 }
+        XCTAssertTrue(arrived)
+        XCTAssertTrue(console.isSending)
+        await console.transition(to: "plan")
+        XCTAssertFalse(console.isSending, "the switch must release the send")
+
+        console.draft = "plan turn"
+        await console.send()
+        XCTAssertEqual(console.snapshot?.transcript.map(\.assistant), ["fresh"])
+        await gate.open()
+        await stale.value
+        XCTAssertFalse(console.isSending)
     }
 
     /// An unsent draft typed in one mode (possibly private) must not survive a switch to another.

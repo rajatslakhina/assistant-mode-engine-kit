@@ -1,7 +1,7 @@
 /// Bounds on everything the engine keeps in memory.
 public struct EngineLimits: Equatable, Sendable {
     /// Turns retained in the active mode's transcript; older ones are removed from it. (`TurnRecord`s
-    /// keep counts and token estimates, not turn text; see `TurnRecord`.)
+    /// don't keep the turns sent; they keep non-private answers and failure messages; see `TurnRecord`.)
     public let maxTranscriptTurns: Int
     /// Turn records kept for inspection and evals (a ring: oldest first out).
     public let maxRecords: Int
@@ -108,7 +108,8 @@ public struct EngineSnapshot: Equatable, Sendable {
 /// Concurrency contract. The actor gives mutual exclusion between suspension points, not across
 /// them, so the one `await` in `send` is guarded explicitly:
 /// - everything the routing decision reads is captured before the `await`;
-/// - the model call runs in a child `Task` the engine holds; `transition(to:)` may run while it is
+/// - the model call runs in an unstructured `Task` the engine holds (it doesn't inherit the
+///   caller's cancellation, so `send` forwards it with `withTaskCancellationHandler`); `transition(to:)` may run while it is
 ///   suspended, cancels it, frees the engine for the new mode at once, and bumps `modeEpoch`, so an
 ///   answer that still comes back is reported as `discardedModeChanged` instead of being appended
 ///   to the new mode's transcript;

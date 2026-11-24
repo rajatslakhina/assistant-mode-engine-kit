@@ -179,6 +179,27 @@ MUTANTS = [
         T + "EvaluationTests/testProbeStopsWhenCancelled",
     ),
     (
+        "records-redact-every-failure",
+        SRC / "AssistantEngine.swift",
+        "        case .failed(let route, _) where isPrivate:",
+        "        case .failed(let route, _) where true || isPrivate:",
+        T + "EngineTests/testPrivateModeFailureMessagesAreRedactedInRecords",
+    ),
+    (
+        "init-budget-check-traps",
+        SRC / "AssistantEngine.swift",
+        "if Saturating.add(definition.contextBudget, limits.reservedResponseTokens) > profile.onDeviceContextTokens {",
+        "if definition.contextBudget + limits.reservedResponseTokens > profile.onDeviceContextTokens {",
+        T + "EngineTests/testEngineRejectsAnIntMaxBudgetInsteadOfTrapping",
+    ),
+    (
+        "ui-keeps-stale-send-active",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "            activeSend = nil // the engine cancelled the old call and is free for the new mode\n",
+        "\n",
+        T + "ConsoleModelTests/testTransitionReleasesTheInFlightSendSoTheNewModeCanSend",
+    ),
+    (
         "private-mode-escalates",
         SRC / "Routing.swift",
         "if context.escalation == .forbidden {",
@@ -258,8 +279,15 @@ def main() -> int:
                 print("INVALID  " + name, flush=True)
                 continue
             # A kill needs evidence: the filter matched at least one test and at least one test failed.
-            # A typo in the filter, or a crash before any test ran, is reported as invalid, not as a kill.
-            counts = re.findall(r"Executed (\d+) tests?, with (\d+) failures?", result.stdout + result.stderr)
+            # A typo in the filter, or a crash before the named test started, is reported as invalid, not as a kill.
+            output = result.stdout + result.stderr
+            counts = re.findall(r"Executed (\d+) tests?, with (\d+) failures?", output)
+            method = test.rsplit("/", 1)[-1]
+            if not counts and result.returncode != 0 and f"{method}]' started" in output:
+                # The named test started and the process died (e.g. an arithmetic trap): caught.
+                killed.append(f"{name} -> {test} (crashed)")
+                print("KILLED   " + name + " (test crashed)", flush=True)
+                continue
             if not counts or int(counts[-1][0]) == 0:
                 broken.append(f"{name}: filter {test!r} ran no tests")
                 print("INVALID  " + name, flush=True)

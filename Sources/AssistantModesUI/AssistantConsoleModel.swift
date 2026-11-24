@@ -34,20 +34,26 @@ public final class AssistantConsoleModel {
         draft = ""
         needsImageInput = false
         lastError = nil
-        sendsInFlight += 1
+        let id = nextSendID
+        nextSendID &+= 1
+        activeSend = id
         _ = await engine.send(prompt, needs: needs)
-        sendsInFlight -= 1
+        // A mode switch may have released this send already, and a newer send may own the slot.
+        if activeSend == id { activeSend = nil }
         await refresh()
     }
 
-    /// Sends this view model started that have not returned yet (UI affordance only; the engine's
-    /// own `isGenerating` is the authority on whether a generation is running).
-    public private(set) var sendsInFlight = 0
+    /// True while a send this view model started is the current one. A mode switch releases it at
+    /// once, matching the engine, which frees itself for the new mode when it cancels the old call.
+    public var isSending: Bool { activeSend != nil }
+    private var activeSend: UInt64?
+    private var nextSendID: UInt64 = 0
 
     public func transition(to mode: ModeID) async {
         do {
             lastTransition = try await engine.transition(to: mode)
             lastError = nil
+            activeSend = nil // the engine cancelled the old call and is free for the new mode
             // An unsent draft belongs to the mode it was typed in (it may be private); don't carry it.
             draft = ""
             needsImageInput = false

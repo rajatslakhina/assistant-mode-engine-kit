@@ -185,14 +185,14 @@ public struct AssistantConsoleView: View {
             HStack {
                 TextField("Ask in this mode…", text: $model.draft)
                     .textFieldStyle(.roundedBorder)
-                if model.sendsInFlight > 0 {
+                if model.isSending {
                     ProgressView().accessibilityLabel("Generating")
                 }
                 Button("Send") { Task { await model.send() } }
                     .buttonStyle(.borderedProminent)
                     // One generation at a time: the engine would reject a second send as busy, and the
                     // cleared draft would be lost.
-                    .disabled(model.draft.allSatisfy(\.isWhitespace) || model.sendsInFlight > 0)
+                    .disabled(model.draft.allSatisfy(\.isWhitespace) || model.isSending)
             }
             Toggle("Mark as needing imageInput (routing only, no image is sent)", isOn: $model.needsImageInput)
                 .font(.caption)

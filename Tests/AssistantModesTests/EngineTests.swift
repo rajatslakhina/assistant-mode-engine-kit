@@ -13,6 +13,17 @@ final class EngineTests: XCTestCase {
         XCTAssertNoThrow(try Fixture.engine(profile: small, limits: EngineLimits(reservedResponseTokens: 900)))
     }
 
+    /// An Int.max budget passes ModeGraph (it is positive) and must be rejected, not trap, when the
+    /// engine adds the response reserve.
+    func testEngineRejectsAnIntMaxBudgetInsteadOfTrapping() throws {
+        let graph = try ModeGraph(initialMode: "huge", modes: [
+            ModeDefinition(id: "huge", title: "Huge", instructions: "x", contextBudget: .max),
+        ])
+        XCTAssertThrowsError(try AssistantEngine(graph: graph, profile: Fixture.iPhone, onDevice: Fixture.echo("d"))) { error in
+            XCTAssertEqual(error as? EngineError, .budgetExceedsContext(mode: "huge", budget: .max, reserved: 1024, context: 4096))
+        }
+    }
+
     func testEngineStartsInTheInitialModeWithEmptyState() async throws {
         let engine = try Fixture.engine()
         let snapshot = await engine.snapshot()
@@ -370,11 +381,18 @@ final class EngineTests: XCTestCase {
     func testPrivateModeFailureMessagesAreRedactedInRecords() async throws {
         struct Echo: Error, CustomStringConvertible { let description: String }
         let model = ClosureModel { request in
-            if request.mode == "review" { throw Echo(description: "refused: SECRET-\(request.prompt)") }
+            if request.mode == "review" || request.prompt == "fail-open" {
+                throw Echo(description: "refused: SECRET-\(request.prompt)")
+            }
             return "ok"
         }
         let engine = try Fixture.engine(onDevice: model)
-        _ = await engine.send("ordinary")
+        _ = await engine.send("fail-open") // a non-private failure: its message is kept
+        let openRecords = await engine.records
+        guard case .failed(.onDevice, let openMessage)? = openRecords.last?.outcome else {
+            return XCTFail("got \(String(describing: openRecords.last?.outcome))")
+        }
+        XCTAssertTrue(openMessage.contains("SECRET-fail-open"))
         try await engine.transition(to: "plan")
         try await engine.transition(to: "review")
         let outcome = await engine.send("draft")
