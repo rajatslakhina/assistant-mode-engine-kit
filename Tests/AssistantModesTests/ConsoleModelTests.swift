@@ -183,6 +183,9 @@ final class ConsoleModelTests: XCTestCase {
         await sending.value
         let count = await cloudCalls.value
         XCTAssertEqual(count, 0, "text typed in private review must never be escalated")
+        XCTAssertEqual(console.draft, "", "the switch cleared the unsent draft")
+        let sends = await console.engine.records
+        XCTAssertTrue(sends.isEmpty, "nothing was sent: the send was ignored, not rejected by the engine")
         XCTAssertEqual(console.snapshot?.mode, "capture")
         XCTAssertFalse(console.isSending)
         XCTAssertFalse(console.isTransitioning)

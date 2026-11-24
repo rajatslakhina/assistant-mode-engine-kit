@@ -108,7 +108,9 @@ python3 Scripts/mutation_check.py   # rebuilds once per mutant; takes a few minu
 
 ```swift
 import AssistantModes
+#if canImport(FoundationModels)
 import FoundationModels
+#endif
 
 let graph = try ModeGraph(initialMode: "capture", modes: [
     ModeDefinition(id: "capture", title: "Capture", instructions: "Turn what the user says into notes.",
@@ -120,13 +122,19 @@ let graph = try ModeGraph(initialMode: "capture", modes: [
 ])
 let onDevice: any OnDeviceModel
 var window = 4096                            // fallback when the real window can't be read
+#if canImport(FoundationModels)              // Xcode 26+ SDK
 if #available(iOS 26.0, macOS 26.0, *) {
-    onDevice = SystemModelBackend()          // Apple's on-device model (needs an Xcode 26+ SDK)
-    let reported = SystemLanguageModel.default.contextSize   // iOS 26.4 SDK API, back-deployed to 26.0
+    onDevice = SystemModelBackend()          // Apple's on-device model
+    #if compiler(>=6.3)                      // contextSize is in the iOS 26.4 SDK (Xcode 26.4+)
+    let reported = SystemLanguageModel.default.contextSize
     if reported > 0 { window = reported }    // iOS 27 can report 0 while the model is downloading
+    #endif
 } else {
     onDevice = ClosureModel(availability: .unavailable(.deviceNotEligible)) { _ in "" }
 }
+#else
+onDevice = ClosureModel(availability: .unavailable(.deviceNotEligible)) { _ in "" }
+#endif
 let engine = try AssistantEngine(
     graph: graph,
     profile: .iPhone(contextTokens: window),
