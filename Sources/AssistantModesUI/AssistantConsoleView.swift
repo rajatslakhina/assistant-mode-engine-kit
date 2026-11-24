@@ -18,8 +18,8 @@ public struct AssistantConsoleView: View {
                         modeBar(snapshot)
                         capabilityCard(snapshot)
                         turnLog(snapshot)
-                        conversationCard(snapshot)
                         stateCard(snapshot)
+                        conversationCard(snapshot)
                         if let report = model.lastTransition { transitionCard(report) }
                         if let error = model.lastError {
                             Label(error, systemImage: "exclamationmark.triangle")
@@ -190,7 +190,9 @@ public struct AssistantConsoleView: View {
                 }
                 Button("Send") { Task { await model.send() } }
                     .buttonStyle(.borderedProminent)
-                    .disabled(model.draft.allSatisfy(\.isWhitespace))
+                    // One generation at a time: the engine would reject a second send as busy, and the
+                    // cleared draft would be lost.
+                    .disabled(model.draft.allSatisfy(\.isWhitespace) || model.sendsInFlight > 0)
             }
             Toggle("Mark as needing imageInput (routing only, no image is sent)", isOn: $model.needsImageInput)
                 .font(.caption)

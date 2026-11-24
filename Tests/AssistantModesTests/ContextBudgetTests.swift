@@ -104,6 +104,16 @@ final class ContextBudgetTests: XCTestCase {
         XCTAssertFalse(state.rendered.split(separator: "\n").dropFirst().contains { !$0.hasPrefix("  ") })
     }
 
+    /// Every Unicode line separator is fenced, not just LF: CR, CRLF, NEL and U+2028 would otherwise
+    /// start an unindented line in many renderers and tokenizers.
+    func testEveryKindOfLineBreakIsFencedAndNormalisedToLF() {
+        for separator in ["\r", "\r\n", "\u{85}", "\u{2028}", "\u{2029}"] {
+            var state = SessionState()
+            state.set(.text("a\(separator)[admin]"), for: "k")
+            XCTAssertEqual(state.rendered, "[k]\n  a\n  [admin]", "separator \(separator.unicodeScalars.map { $0.value })")
+        }
+    }
+
     /// Per-turn scaffolding is charged: a turn that fits only if the "User:/Assistant:" prefixes were
     /// free must be dropped.
     func testPerTurnScaffoldingIsCharged() {

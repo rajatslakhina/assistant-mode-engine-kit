@@ -358,6 +358,35 @@ final class EngineTests: XCTestCase {
         XCTAssertFalse(generating)
     }
 
+    /// A backend that throws CancellationError on its own (no caller cancellation, no mode change)
+    /// ends the turn as cancelled, not as a failure.
+    func testBackendCancellationErrorIsReportedAsCancelled() async throws {
+        let engine = try Fixture.engine(onDevice: ClosureModel { _ in throw CancellationError() })
+        let outcome = await engine.send("x")
+        XCTAssertEqual(outcome, .cancelled(route: .onDevice))
+    }
+
+    /// A failure in a private mode may carry the request's text, so its message is redacted in records.
+    func testPrivateModeFailureMessagesAreRedactedInRecords() async throws {
+        struct Echo: Error, CustomStringConvertible { let description: String }
+        let model = ClosureModel { request in
+            if request.mode == "review" { throw Echo(description: "refused: SECRET-\(request.prompt)") }
+            return "ok"
+        }
+        let engine = try Fixture.engine(onDevice: model)
+        _ = await engine.send("ordinary")
+        try await engine.transition(to: "plan")
+        try await engine.transition(to: "review")
+        let outcome = await engine.send("draft")
+        guard case .failed(.onDevice, let liveMessage) = outcome else { return XCTFail("got \(outcome)") }
+        XCTAssertTrue(liveMessage.contains("SECRET"), "the caller still gets the real error")
+        let records = await engine.records
+        guard case .failed(.onDevice, let kept)? = records.last?.outcome else {
+            return XCTFail("got \(String(describing: records.last?.outcome))")
+        }
+        XCTAssertEqual(kept, TurnRecord.redactedFailure)
+    }
+
     /// A stale call that finishes after the switch must not clear the new mode's in-flight call:
     /// the engine must still report it as generating and reject a third send as busy.
     func testAStaleCallFinishingDoesNotFreeTheNewModesGeneration() async throws {
@@ -499,10 +528,12 @@ final class EngineTests: XCTestCase {
     }
 
     func testLimitsClampNonPositiveValuesToOne() {
-        let limits = EngineLimits(maxTranscriptTurns: 0, maxRecords: -4, escalationContextTokens: Int.min)
+        let limits = EngineLimits(maxTranscriptTurns: 0, maxRecords: -4, escalationContextTokens: Int.min,
+                                  reservedResponseTokens: -5000)
         XCTAssertEqual(limits.maxTranscriptTurns, 1)
         XCTAssertEqual(limits.maxRecords, 1)
         XCTAssertEqual(limits.escalationContextTokens, 1)
+        XCTAssertEqual(limits.reservedResponseTokens, 0, "a negative reserve would let oversized budgets pass")
     }
 
     func testLatencyIsMeasuredWithTheInjectedClock() async throws {

@@ -121,12 +121,13 @@ public enum EvalRunner {
 
 /// How repeatable a model's answer is for one fixed request.
 public struct StabilityReport: Equatable, Sendable {
+    /// Runs actually executed: the requested count clamped to 1...maxRuns, or fewer if cancelled.
     public let runs: Int
     public let failures: Int
     public let distinctOutputs: Int
     /// How many successful runs produced the most common (normalised) output.
     public let modalCount: Int
-    /// `modalCount / runs`, in 0...1. Failures count against agreement.
+    /// `modalCount / runs`, in 0...1 (0 when no run executed). Failures count against agreement.
     public var agreement: Double { runs > 0 ? Double(modalCount) / Double(runs) : 0 }
 }
 
@@ -145,7 +146,10 @@ public enum StabilityProbe {
         let runs = min(max(requestedRuns, 1), maxRuns)
         var counts: [String: Int] = [:]
         var failures = 0
+        var executed = 0
         for _ in 0..<runs {
+            if Task.isCancelled { break }
+            executed += 1
             do {
                 let output = normalize(try await respond(request))
                 counts[output, default: 0] += 1
@@ -154,7 +158,7 @@ public enum StabilityProbe {
             }
         }
         return StabilityReport(
-            runs: runs,
+            runs: executed,
             failures: failures,
             distinctOutputs: counts.count,
             modalCount: counts.values.max() ?? 0

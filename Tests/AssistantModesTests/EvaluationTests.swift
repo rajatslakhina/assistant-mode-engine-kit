@@ -111,6 +111,19 @@ final class EvaluationTests: XCTestCase {
         XCTAssertEqual(high.runs, StabilityProbe.maxRuns)
     }
 
+    /// The probe stops issuing requests once its task is cancelled and reports the runs it executed.
+    func testProbeStopsWhenCancelled() async {
+        let calls = Counter()
+        let report = await StabilityProbe.measure(runs: 10, request: request) { _ in
+            await calls.increment()
+            withUnsafeCurrentTask { $0?.cancel() } // cancel the probe's own task during the first run
+            return "x"
+        }
+        let count = await calls.value
+        XCTAssertEqual(count, 1)
+        XCTAssertEqual(report.runs, 1)
+    }
+
     func testAllFailuresGiveZeroAgreementWithoutDividingByZero() async {
         struct Boom: Error {}
         let report = await StabilityProbe.measure(runs: 3, request: request) { _ in throw Boom() }

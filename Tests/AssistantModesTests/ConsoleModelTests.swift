@@ -33,6 +33,18 @@ final class ConsoleModelTests: XCTestCase {
         XCTAssertEqual(console.lastTransition?.to, "plan")
     }
 
+    /// An unsent draft typed in one mode (possibly private) must not survive a switch to another.
+    func testSuccessfulTransitionClearsTheDraftAndImageFlag() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
+        console.draft = "typed but not sent"
+        console.needsImageInput = true
+        await console.transition(to: "review") // illegal: nothing changes
+        XCTAssertEqual(console.draft, "typed but not sent")
+        await console.transition(to: "plan")
+        XCTAssertEqual(console.draft, "")
+        XCTAssertFalse(console.needsImageInput)
+    }
+
     func testLegalTargetsFollowTheCurrentMode() async throws {
         let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")
         await console.refresh()

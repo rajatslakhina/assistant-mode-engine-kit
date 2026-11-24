@@ -57,9 +57,12 @@ enum PromptScaffold {
     static let perTurnText = userPrefix + "\n" + assistantPrefix + "\n"
     static let indent = "  "
 
-    /// Indents every line after the first, so user text never starts a line at column 0.
+    /// Indents every line after the first, so user text never starts a line at column 0. Every
+    /// Unicode line separator counts (LF, CR, CRLF, NEL, U+2028, U+2029, ...), and each is normalised
+    /// to LF, so a value can't use a separator the fence doesn't recognise.
     static func fence(_ text: String) -> String {
-        text.replacingOccurrences(of: "\n", with: "\n" + indent)
+        text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .joined(separator: "\n" + indent)
     }
 }
 

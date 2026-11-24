@@ -48,6 +48,9 @@ public final class AssistantConsoleModel {
         do {
             lastTransition = try await engine.transition(to: mode)
             lastError = nil
+            // An unsent draft belongs to the mode it was typed in (it may be private); don't carry it.
+            draft = ""
+            needsImageInput = false
         } catch {
             lastError = String(describing: error)
         }

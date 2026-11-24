@@ -5,7 +5,8 @@ public struct EngineLimits: Equatable, Sendable {
     public let maxTranscriptTurns: Int
     /// Turn records kept for inspection and evals (a ring: oldest first out).
     public let maxRecords: Int
-    /// Budget used when a turn escalates. The cloud model has a larger window, but it is still finite.
+    /// Input budget used when a turn escalates. Unlike the on-device path, no response reserve is
+    /// subtracted: set this to your cloud model's window minus your longest expected answer.
     public let escalationContextTokens: Int
     /// Tokens of the on-device context window kept free for the model's answer. The on-device window
     /// holds input and output together, so every mode budget plus this reserve must fit inside it.
@@ -72,12 +73,14 @@ public enum TurnOutcome: Equatable, Sendable {
 /// What the engine remembers about a finished turn, for inspection and evals.
 ///
 /// Records outlive the transcript (they survive trimming and mode switches, up to `maxRecords`),
-/// so they keep less: plans carry counts and token estimates but no turn text, and an answer given
-/// in a private (`.forbidden`) mode is replaced by `TurnRecord.redacted(characters:)`, so private
-/// text doesn't linger in memory or in the UI after the user leaves that mode.
+/// so they keep less: plans carry counts and token estimates but no turn text, and an answer or a
+/// failure message from a private (`.forbidden`) mode is replaced by a redaction, so private text
+/// doesn't linger in memory or in the UI after the user leaves that mode.
 public struct TurnRecord: Equatable, Sendable {
     /// The text stored instead of an answer given in a private mode.
     public static func redacted(characters: Int) -> String { "[private answer: \(characters) characters, not kept]" }
+    /// The message stored instead of a failure's text in a private mode.
+    public static let redactedFailure = "[private failure, message not kept]"
 
     public let sequence: UInt64
     public let mode: ModeID
@@ -347,8 +350,15 @@ public actor AssistantEngine {
     }
 
     private static func recordable(_ outcome: TurnOutcome, isPrivate: Bool) -> TurnOutcome {
-        guard case .answered(let text, let route, let plan) = outcome else { return outcome }
-        let kept = isPrivate ? TurnRecord.redacted(characters: text.count) : text
-        return .answered(text: kept, route: route, plan: plan.withoutTurnText())
+        switch outcome {
+        case .answered(let text, let route, let plan):
+            let kept = isPrivate ? TurnRecord.redacted(characters: text.count) : text
+            return .answered(text: kept, route: route, plan: plan.withoutTurnText())
+        case .failed(let route, _) where isPrivate:
+            // A backend error can echo the request, so a private mode's error text is not kept either.
+            return .failed(route: route, message: TurnRecord.redactedFailure)
+        default:
+            return outcome
+        }
     }
 }
