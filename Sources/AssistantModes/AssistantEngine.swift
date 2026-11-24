@@ -245,7 +245,8 @@ public actor AssistantEngine {
     ///
     /// Pass `expectedMode` (the mode the user typed the prompt in). If a switch landed first, the
     /// prompt is rejected with `.modeChanged` instead of being routed under the new mode's rules,
-    /// so text typed in a private mode can never be escalated from the next one.
+    /// so text typed in a private mode can't be escalated from the next one. `expectedMode` is
+    /// optional; without it there is no such check (the bundled console always passes it).
     public func send(_ prompt: String, needs: Set<Capability> = [], expectedMode: ModeID? = nil) async -> TurnOutcome {
         let start = clock.nowNanoseconds()
         let mode = currentMode

@@ -305,6 +305,20 @@ MUTANTS = [
         T + "EngineTests/testSendFromAnAlreadyCancelledTaskDispatchesNothing",
     ),
     (
+        "ui-drops-image-flag",
+        pathlib.Path("Sources/AssistantModesUI") / "AssistantConsoleModel.swift",
+        "let needs: Set<Capability> = needsImageInput ? [.imageInput] : []",
+        "let needs: Set<Capability> = []; _ = needsImageInput",
+        T + "ConsoleModelTests/testImageFlagReachesRouting",
+    ),
+    (
+        "assistant-text-unfenced",
+        SRC / "Models.swift",
+        "parts.append(PromptScaffold.assistantPrefix + PromptScaffold.fence(turn.assistant))",
+        "parts.append(PromptScaffold.assistantPrefix + turn.assistant)",
+        T + "EngineTests/testFlattenedPromptKeepsUserStateOutOfTheInstructions",
+    ),
+    (
         "private-mode-escalates",
         SRC / "Routing.swift",
         "if context.escalation == .forbidden {",

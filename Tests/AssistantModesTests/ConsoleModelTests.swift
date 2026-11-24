@@ -206,6 +206,17 @@ final class ConsoleModelTests: XCTestCase {
         XCTAssertTrue(records.isEmpty, "nothing was sent")
     }
 
+    /// The console forwards the image flag to routing: on Apple TV, a request marked as needing image
+    /// input must escalate for that reason.
+    func testImageFlagReachesRouting() async throws {
+        let console = AssistantConsoleModel(engine: try Fixture.engine(profile: Fixture.appleTV), backendLabel: "test")
+        console.draft = "read this receipt"
+        console.needsImageInput = true
+        await console.send()
+        let decision = await console.engine.records.last?.decision
+        XCTAssertEqual(decision, .escalate(because: .missingCapabilities([.imageInput])))
+    }
+
     /// An unsent draft typed in one mode (possibly private) must not survive a switch to another.
     func testSuccessfulTransitionClearsTheDraftAndImageFlag() async throws {
         let console = AssistantConsoleModel(engine: try Fixture.engine(), backendLabel: "test")

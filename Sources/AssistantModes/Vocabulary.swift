@@ -65,6 +65,8 @@ public struct PlatformProfile: Equatable, Sendable {
         self.onDeviceContextTokens = max(0, onDeviceContextTokens)
     }
 
+    /// Assumes iOS 27 or later: image attachments to the system model are iOS 27 API in the 27.2
+    /// SDK. On iOS 26.x, drop `.imageInput` (build a `PlatformProfile` directly).
     public static func iPhone(contextTokens: Int) -> PlatformProfile {
         PlatformProfile(
             name: "iPhone",
