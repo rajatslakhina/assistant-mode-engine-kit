@@ -7,7 +7,7 @@
 
 Demo app: (added after the companion repo is pushed — see below)
 
-<img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, and below it an over-budget prompt escalated after consent was granted; the REFUSED row cut off at the bottom is the same prompt sent before consent">
+<img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, and below it an over-budget prompt escalated to Claude after consent was granted">
 
 ```mermaid
 flowchart LR
