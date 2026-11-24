@@ -60,10 +60,34 @@ public struct SessionState: Equatable, Sendable {
 
 /// What fits in the budget: the newest contiguous run of turns that fits after the fixed part.
 public struct ContextPlan: Equatable, Sendable {
+    /// The turns sent. Empty in a plan stored in a `TurnRecord`, which keeps only the count.
     public let includedTurns: [Turn]
+    public let includedTurnCount: Int
     public let droppedTurnCount: Int
     public let estimatedTokens: Int
     public let budget: Int
+
+    public init(includedTurns: [Turn], droppedTurnCount: Int, estimatedTokens: Int, budget: Int) {
+        self.includedTurns = includedTurns
+        self.includedTurnCount = includedTurns.count
+        self.droppedTurnCount = droppedTurnCount
+        self.estimatedTokens = estimatedTokens
+        self.budget = budget
+    }
+
+    private init(count: Int, droppedTurnCount: Int, estimatedTokens: Int, budget: Int) {
+        self.includedTurns = []
+        self.includedTurnCount = count
+        self.droppedTurnCount = droppedTurnCount
+        self.estimatedTokens = estimatedTokens
+        self.budget = budget
+    }
+
+    /// The same plan without the turn text: counts and token estimates only.
+    public func withoutTurnText() -> ContextPlan {
+        ContextPlan(count: includedTurnCount, droppedTurnCount: droppedTurnCount,
+                    estimatedTokens: estimatedTokens, budget: budget)
+    }
 }
 
 public enum BudgetError: Error, Equatable, Sendable {

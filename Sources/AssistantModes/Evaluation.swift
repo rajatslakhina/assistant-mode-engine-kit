@@ -59,8 +59,8 @@ public struct EvalResult: Equatable, Sendable {
 }
 
 /// Runs scripted mode-transition and routing evals against a real engine. Because the cases assert
-/// routing and state, not the wording of an answer, the same case can run against a scripted model
-/// in CI and against the system model (the demo's `-scenario eval` does the latter).
+/// routing and state, not the wording of an answer, a case can run against a scripted model in CI
+/// and against the system model (the demo's `-scenario eval` runs a variant on its own graph).
 public enum EvalRunner {
     public static func run(_ evalCase: EvalCase, on engine: AssistantEngine) async -> EvalResult {
         var failures: [EvalFailure] = []

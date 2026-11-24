@@ -7,7 +7,7 @@
 
 Demo app: (added after the companion repo is pushed — see below)
 
-<img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, an over-budget prompt escalated after consent, and the same prompt refused before consent">
+<img src="docs/system-model.png" width="300" align="right" alt="The demo app on an iOS 27.2 Simulator: Apple's on-device model answering in plan mode from carried-over state, and below it an over-budget prompt escalated after consent was granted; the REFUSED row cut off at the bottom is the same prompt sent before consent">
 
 ```mermaid
 flowchart LR
@@ -45,8 +45,8 @@ This package answers each of these in code, with a test that fails if the answer
 | `ContextBudgeter`, `TokenEstimator` | Fits instructions, state, history and the prompt into the active mode's budget. It also charges for the headers and `User:`/`Assistant:` prefixes the prompt adds, so the plan covers what is actually sent. Overflow never "fits". The engine also keeps a response reserve (1,024 tokens by default) free in the on-device window, because that window holds the answer too. |
 | `PlatformProfile`, `Capability` | The per-platform capability matrix and context window. `iPhone(...)` and `appleTV(...)` presets. |
 | `RoutePolicy`, `RouteDecision` | A pure decision table: `onDevice(plan)`, `escalate(because:)` or `refuse(because:blockedBy:)`. A request declares the capabilities it needs (for example `.imageInput`); carrying the image itself is the app's job. |
-| `AssistantEngine` (actor) | Owns the active mode, state, transcript and records. Every way a turn can end is a `TurnOutcome`. |
-| `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run them against a scripted model; the demo's `-scenario eval` runs them against Apple's model. |
+| `AssistantEngine` (actor) | Owns the active mode, state, transcript and records. Every way a turn can end is a `TurnOutcome`. Records outlive the transcript, so they keep counts and token estimates but no turn text, and answers given in a private mode are redacted in them. |
+| `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run a 19-step house eval against a scripted model; the demo's `-scenario eval` runs a 15-step variant, on its own graph, against Apple's model. |
 | `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. In the run shown in the demo repo, against Apple's model: 70% agreement over 10 runs (2 distinct answers). |
 | `SystemModelBackend` | `OnDeviceModel` backed by Foundation Models' `SystemLanguageModel` (compiled where the SDK has it, iOS/macOS 26+). |
 | `AssistantModesUI` | `AssistantConsoleView`, an inspector that shows each turn's route and the reason for it. |
@@ -75,6 +75,7 @@ This package answers each of these in code, with a test that fails if the answer
 - The model call runs in a child task the engine holds. `transition(to:)` may run while it is suspended: it cancels that call, frees the engine so the new mode can send at once, and bumps an epoch. An answer that still comes back is reported as `.discardedModeChanged` instead of being added to the new mode's transcript. Switching away and straight back still discards, because the context the answer was built from is gone.
 - A second `send` during a generation is rejected with `.busy`, not queued or interleaved.
 - Cancelling the caller's task cancels the model call and ends the turn as `.cancelled`. If the backend ignores cancellation and answers anyway, the answer is not kept.
+- A stale call that finishes after a switch can't free the new mode's call: each call has an id, and only the call that owns the in-flight slot clears it.
 
 ## Honest limits
 
@@ -84,10 +85,19 @@ This package answers each of these in code, with a test that fails if the answer
 - **Capabilities are routing declarations, not payloads.** `send(_:needs: [.imageInput])` decides where a request may go; the package does not carry image data, and image tokens are not budgeted. Carrying the attachment to the chosen backend is the app's job.
 - **Escalation sends the active mode's instructions, state and history to your cloud model.** That is the point of escalating, so a mode with sensitive state should be `forbidden`, and consent should be explicit. Revoking consent does not recall a request already sent, and changing state during a generation does not cancel it. The demo's Claude backend is simulated; a real one belongs behind your own server, never with an API key in the app.
 - **Online and consent are caller-set flags.** There is no network monitoring, consent is one engine-wide boolean (not per mode or per request), and `TurnRecord` records the route and reason but not which data left the device.
+- **Records keep ordinary answers in memory.** `TurnRecord`s keep each non-private answer's text (not the turns sent) until they age out of the `maxRecords` ring (200 by default); private-mode answers are redacted. Clear or shrink the ring if that matters for your app.
 - **Prompt injection is not prevented.** User text never goes in the instructions slot and is fenced by indentation, but a model can still be talked into things by its prompt.
 - **The evals check routing and state, not answer quality.** `StabilityProbe` measures how much the output varies, not whether it is correct, and its numbers change from run to run.
 - **`SystemModelBackend` is not covered by unit tests.** CI runners don't ship Foundation Models. It was exercised in the demo app on an iOS 27.2 Simulator on a Mac with Apple Intelligence (see the demo repo).
 - **No tvOS or watchOS build.** The package declares and CI builds iOS and macOS only; Apple TV is a capability profile, and `SystemModelBackend` is not compiled for tvOS or watchOS.
+
+## Run it locally
+
+```sh
+git clone https://github.com/rajatslakhina/assistant-mode-engine-kit.git && cd assistant-mode-engine-kit
+swift build -Xswiftc -warnings-as-errors && swift test
+python3 Scripts/mutation_check.py   # rebuilds once per mutant; takes a few minutes
+```
 
 ## Install
 
@@ -130,10 +140,10 @@ default: break
 What has actually been run, and where:
 
 - **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's `macos-15` runner (Xcode 16.4, Swift 6.1.2), three jobs on every push:
-  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 92 XCTest tests.
+  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 94 XCTest tests.
   - *iOS Simulator build*: both library targets built for `generic/platform=iOS Simulator` with warnings as errors.
-  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 22 one-line mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 22 are killed.
-- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 92 tests and 22/22 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
+  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 25 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 25 are killed.
+- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 94 tests and 25/25 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
 - **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
 - **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 

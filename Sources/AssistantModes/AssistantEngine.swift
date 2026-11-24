@@ -1,6 +1,7 @@
 /// Bounds on everything the engine keeps in memory.
 public struct EngineLimits: Equatable, Sendable {
-    /// Turns retained for the active mode. Older turns are forgotten, not just left out of the prompt.
+    /// Turns retained in the active mode's transcript; older ones are removed from it. (`TurnRecord`s
+    /// keep counts and token estimates, not turn text; see `TurnRecord`.)
     public let maxTranscriptTurns: Int
     /// Turn records kept for inspection and evals (a ring: oldest first out).
     public let maxRecords: Int
@@ -60,14 +61,24 @@ public enum RejectionReason: Equatable, Sendable {
 public enum TurnOutcome: Equatable, Sendable {
     case answered(text: String, route: Route, plan: ContextPlan)
     case refused(OnDeviceBlocker, EscalationBlocker)
-    /// The answer arrived after the mode changed. It belongs to a context that no longer exists.
+    /// The mode changed while the call was in flight. The call was cancelled, and any result that
+    /// still arrived was dropped: it belongs to a context that no longer exists.
     case discardedModeChanged(route: Route, startedIn: ModeID, nowIn: ModeID)
     case failed(route: Route, message: String)
     case cancelled(route: Route)
     case rejected(RejectionReason)
 }
 
+/// What the engine remembers about a finished turn, for inspection and evals.
+///
+/// Records outlive the transcript (they survive trimming and mode switches, up to `maxRecords`),
+/// so they keep less: plans carry counts and token estimates but no turn text, and an answer given
+/// in a private (`.forbidden`) mode is replaced by `TurnRecord.redacted(characters:)`, so private
+/// text doesn't linger in memory or in the UI after the user leaves that mode.
 public struct TurnRecord: Equatable, Sendable {
+    /// The text stored instead of an answer given in a private mode.
+    public static func redacted(characters: Int) -> String { "[private answer: \(characters) characters, not kept]" }
+
     public let sequence: UInt64
     public let mode: ModeID
     public let decision: RouteDecision?
@@ -316,16 +327,28 @@ public actor AssistantEngine {
 
     private func finish(_ outcome: TurnOutcome, mode: ModeID, decision: RouteDecision?, start: UInt64) -> TurnOutcome {
         let end = clock.nowNanoseconds()
+        let isPrivate = graph.definition(mode)?.escalation == .forbidden
         records.append(TurnRecord(
             sequence: nextSequence,
             mode: mode,
-            decision: decision,
-            outcome: outcome,
+            decision: decision.map(Self.withoutTurnText),
+            outcome: Self.recordable(outcome, isPrivate: isPrivate),
             latencyNanoseconds: end >= start ? end - start : 0
         ))
         nextSequence &+= 1
         let overflow = records.count - limits.maxRecords
         if overflow > 0 { records.removeFirst(overflow) }
         return outcome
+    }
+
+    private static func withoutTurnText(_ decision: RouteDecision) -> RouteDecision {
+        if case .onDevice(let plan) = decision { return .onDevice(plan.withoutTurnText()) }
+        return decision
+    }
+
+    private static func recordable(_ outcome: TurnOutcome, isPrivate: Bool) -> TurnOutcome {
+        guard case .answered(let text, let route, let plan) = outcome else { return outcome }
+        let kept = isPrivate ? TurnRecord.redacted(characters: text.count) : text
+        return .answered(text: kept, route: route, plan: plan.withoutTurnText())
     }
 }

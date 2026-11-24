@@ -149,6 +149,6 @@ final class EvaluationTests: XCTestCase {
     func testOutcomeCopyForADiscardedAnswerNamesBothModes() {
         let line = OutcomeText.line(for: .discardedModeChanged(route: .onDevice, startedIn: "capture", nowIn: "plan"))
         XCTAssertEqual(line.badge, "DISCARDED")
-        XCTAssertEqual(line.detail, "Answer started in capture arrived after the switch to plan; not shown in plan")
+        XCTAssertEqual(line.detail, "Generation started in capture was interrupted by the switch to plan; nothing from it is shown")
     }
 }

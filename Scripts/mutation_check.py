@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mutation check: break each load-bearing guard on purpose and prove a named test catches it.
 
-Each mutant is a one-line edit to the real source. The script applies it, confirms the package still
+Each mutant is a small, targeted edit to the real source. The script applies it, confirms the package still
 compiles (a mutant that does not compile proves nothing), runs only the test that is supposed to
 catch it, and restores the file. A mutant whose test still passes is a "survivor": that test was not
 actually guarding the property, and the script exits non-zero.
@@ -121,6 +121,27 @@ MUTANTS = [
         "if !context.hasEscalationModel {",
         "if false && !context.hasEscalationModel {",
         T + "RoutePolicyTests/testMissingCloudModelBlocksEscalation",
+    ),
+    (
+        "caller-cancel-not-propagated",
+        SRC / "AssistantEngine.swift",
+        "        } onCancel: {\n            task.cancel()\n        }",
+        "        } onCancel: {\n        }",
+        T + "EngineTests/testCancellingTheCallerCancelsTheModelCallAndFreesTheEngine",
+    ),
+    (
+        "stale-call-frees-new-generation",
+        SRC / "AssistantEngine.swift",
+        "if inFlight?.id == generationID { inFlight = nil }",
+        "inFlight = nil",
+        T + "EngineTests/testAStaleCallFinishingDoesNotFreeTheNewModesGeneration",
+    ),
+    (
+        "records-keep-private-answers",
+        SRC / "AssistantEngine.swift",
+        "let kept = isPrivate ? TurnRecord.redacted(characters: text.count) : text",
+        "let kept = text",
+        T + "EngineTests/testRecordsKeepNoTurnTextAndRedactPrivateAnswers",
     ),
     (
         "private-mode-escalates",

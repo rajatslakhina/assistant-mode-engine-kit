@@ -26,7 +26,7 @@ public enum OutcomeText {
         case .discardedModeChanged(_, let startedIn, let nowIn):
             return Line(
                 badge: "DISCARDED",
-                detail: "Answer started in \(startedIn) arrived after the switch to \(nowIn); not shown in \(nowIn)",
+                detail: "Generation started in \(startedIn) was interrupted by the switch to \(nowIn); nothing from it is shown",
                 tone: .neutral
             )
         case .failed(let route, let message):

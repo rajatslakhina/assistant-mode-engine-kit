@@ -335,12 +335,15 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(outcome, .discardedModeChanged(route: .onDevice, startedIn: "capture", nowIn: "capture"))
     }
 
-    func testCancellingTheCallerReportsCancelledAndFreesTheEngine() async throws {
+    /// Cancelling the caller must cancel the model call itself, not just wait for it: the backend
+    /// sees a CancellationError well before its 2-second sleep would end.
+    func testCancellingTheCallerCancelsTheModelCallAndFreesTheEngine() async throws {
         let started = Counter()
+        let sawCancellation = Counter()
         let model = ClosureModel { _ in
             await started.increment()
-            try await Task.sleep(nanoseconds: 30_000_000_000)
-            return "never"
+            do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { await sawCancellation.increment(); throw error }
+            return "not cancelled"
         }
         let engine = try Fixture.engine(onDevice: model)
         let pending = Task { await engine.send("slow") }
@@ -349,8 +352,71 @@ final class EngineTests: XCTestCase {
         pending.cancel()
         let outcome = await pending.value
         XCTAssertEqual(outcome, .cancelled(route: .onDevice))
+        let cancelled = await sawCancellation.value
+        XCTAssertEqual(cancelled, 1, "the model call itself must be cancelled")
         let generating = await engine.isGenerating
         XCTAssertFalse(generating)
+    }
+
+    /// A stale call that finishes after the switch must not clear the new mode's in-flight call:
+    /// the engine must still report it as generating and reject a third send as busy.
+    func testAStaleCallFinishingDoesNotFreeTheNewModesGeneration() async throws {
+        let captureGate = Gate()
+        let planGate = Gate()
+        let model = ClosureModel { request in
+            if request.mode == "capture" { await captureGate.wait(); return "stale" }
+            // A third send must never block here, so a broken engine fails this test instead of hanging it.
+            if request.prompt == "third" { return "third answer" }
+            await planGate.wait()
+            return "plan answer"
+        }
+        let engine = try Fixture.engine(onDevice: model)
+        let stale = Task { await engine.send("capture turn") }
+        let staleArrived = await waitUntil { await captureGate.arrivals == 1 }
+        XCTAssertTrue(staleArrived)
+        try await engine.transition(to: "plan")
+        let fresh = Task { await engine.send("plan turn") }
+        let freshArrived = await waitUntil { await planGate.arrivals == 1 }
+        XCTAssertTrue(freshArrived)
+
+        await captureGate.open() // the stale call finishes while the plan call is still held
+        let staleOutcome = await stale.value
+        XCTAssertEqual(staleOutcome, .discardedModeChanged(route: .onDevice, startedIn: "capture", nowIn: "plan"))
+        let generating = await engine.isGenerating
+        XCTAssertTrue(generating, "the plan call is still in flight")
+        let third = await engine.send("third")
+        XCTAssertEqual(third, .rejected(.busy))
+
+        await planGate.open()
+        let freshOutcome = await fresh.value
+        guard case .answered("plan answer", .onDevice, _) = freshOutcome else { return XCTFail("got \(freshOutcome)") }
+    }
+
+    /// Records outlive the transcript, so they keep no turn text, and private-mode answers are redacted.
+    func testRecordsKeepNoTurnTextAndRedactPrivateAnswers() async throws {
+        let engine = try Fixture.engine()
+        _ = await engine.send("first")
+        let second = await engine.send("second")
+        guard case .answered(_, _, let livePlan) = second else { return XCTFail("got \(second)") }
+        XCTAssertEqual(livePlan.includedTurns.count, 1, "the live outcome still carries the turns")
+        try await engine.transition(to: "plan")
+        try await engine.transition(to: "review")
+        let privateOutcome = await engine.send("critique")
+        guard case .answered(let privateText, .onDevice, _) = privateOutcome else { return XCTFail("got \(privateOutcome)") }
+        XCTAssertEqual(privateText, "device:review:critique", "the caller still gets the private answer")
+
+        let records = await engine.records
+        XCTAssertEqual(records.count, 3)
+        for record in records {
+            if case .onDevice(let plan)? = record.decision { XCTAssertTrue(plan.includedTurns.isEmpty) }
+            if case .answered(_, _, let plan) = record.outcome { XCTAssertTrue(plan.includedTurns.isEmpty) }
+        }
+        guard records.count == 3 else { return }
+        if case .answered(_, _, let plan) = records[1].outcome { XCTAssertEqual(plan.includedTurnCount, 1) }
+        guard case .answered(let kept, _, _) = records[2].outcome else { return XCTFail("got \(records[2].outcome)") }
+        XCTAssertEqual(kept, TurnRecord.redacted(characters: privateText.count))
+        guard case .answered(let ordinary, _, _) = records[0].outcome else { return XCTFail("got \(records[0].outcome)") }
+        XCTAssertEqual(ordinary, "device:capture:first")
     }
 
     /// A transition cancels the in-flight call and frees the engine: the new mode can send at once
