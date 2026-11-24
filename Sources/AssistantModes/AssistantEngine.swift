@@ -122,7 +122,8 @@ public struct EngineSnapshot: Equatable, Sendable {
 ///   to the new mode's transcript;
 /// - a second `send` during a generation is rejected with `.busy` rather than interleaved;
 /// - if the caller's task is cancelled, the model call is cancelled too, and the turn ends as
-///   `.cancelled` whether or not the backend honoured the cancellation; its answer is not kept.
+///   `.cancelled` whether or not the backend honoured the cancellation; its answer is not kept. A
+///   caller that is already cancelled when it calls `send` gets nothing dispatched at all.
 public actor AssistantEngine {
     // Immutable and Sendable, so readable from any isolation domain without an await.
     public nonisolated let graph: ModeGraph
@@ -305,6 +306,11 @@ public actor AssistantEngine {
             responder = { try await model.respond(to: $0) }
         }
 
+        // A caller that is already cancelled gets nothing dispatched: no request leaves the device
+        // for a turn nobody is waiting for.
+        if Task.isCancelled {
+            return finish(.cancelled(route: route), mode: mode, decision: decision, start: start)
+        }
         let request = ModelRequest(
             mode: mode, instructions: definition.instructions, stateBlock: state.rendered,
             history: plan.includedTurns, prompt: prompt

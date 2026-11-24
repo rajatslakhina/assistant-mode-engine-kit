@@ -129,6 +129,41 @@ final class EngineTests: XCTestCase {
     /// The plan's token count must cover what is actually sent: the instructions plus the whole
     /// flattened prompt, scaffolding included. A budgeter that only counted the user's words would
     /// under-count by the headers and "User:"/"Assistant:" prefixes, and this test would fail.
+    /// The model receives exactly the turns the plan kept, not the whole transcript: when the device
+    /// budget drops a turn, that turn must not be sent.
+    func testModelReceivesOnlyTheTurnsThePlanKept() async throws {
+        let seen = RequestLog()
+        let longAnswer = String(repeating: "y", count: 900) // ~300 tokens: won't fit next to a ~100-token prompt
+        let model = ClosureModel { request in
+            await seen.append(request)
+            return request.prompt == "earlier" ? longAnswer : "ok"
+        }
+        let engine = try Fixture.engine(onDevice: model)
+        _ = await engine.send("earlier")
+        let outcome = await engine.send(String(repeating: "x", count: 300))
+        guard case .answered(_, .onDevice, let plan) = outcome else { return XCTFail("got \(outcome)") }
+        XCTAssertGreaterThan(plan.droppedTurnCount, 0, "the fixture must make the budget drop a turn")
+        let requests = await seen.requests
+        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.last?.history, plan.includedTurns)
+        XCTAssertEqual(requests.last?.history.isEmpty, true)
+    }
+
+    /// A send from a task that is already cancelled dispatches nothing, not even to the cloud.
+    func testSendFromAnAlreadyCancelledTaskDispatchesNothing() async throws {
+        let cloudCalls = Counter()
+        let cloud = ClosureModel { _ in await cloudCalls.increment(); return "cloud" }
+        let engine = try Fixture.engine(profile: Fixture.appleTV, escalation: cloud)
+        let task = Task { () -> TurnOutcome in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await engine.send("x", needs: [.imageInput])
+        }
+        let outcome = await task.value
+        XCTAssertEqual(outcome, .cancelled(route: .escalated))
+        let count = await cloudCalls.value
+        XCTAssertEqual(count, 0, "no request may leave the device for a cancelled caller")
+    }
+
     func testBudgetCoversEverythingTheModelIsSent() async throws {
         let seen = RequestLog()
         let model = ClosureModel { request in await seen.append(request); return "answer \(request.prompt)" }

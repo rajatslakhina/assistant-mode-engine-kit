@@ -46,7 +46,7 @@ This package answers each of these in code, with a test that fails if the answer
 | `PlatformProfile`, `Capability` | The per-platform capability matrix and context window. `iPhone(...)` and `appleTV(...)` presets. |
 | `RoutePolicy`, `RouteDecision` | A pure decision table: `onDevice(plan)`, `escalate(because:)` or `refuse(because:blockedBy:)`. A request declares the capabilities it needs (for example `.imageInput`); carrying the image itself is the app's job. |
 | `AssistantEngine` (actor) | Owns the active mode, state, transcript and records. Every way a turn can end is a `TurnOutcome`. Records outlive the transcript, so their plans keep counts and token estimates but not the turns sent; non-private answers and failure messages are kept, private-mode ones are redacted. |
-| `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run a 19-step house eval against a scripted model; the demo's `-scenario eval` runs a 15-step variant, on its own graph, against Apple's model. |
+| `EvalRunner`, `EvalCase` | Scripted transition and routing evals that run against any backend. The tests run a 19-step house eval against a scripted model; the demo's `-scenario eval -systemModel` runs a 15-step variant, on its own graph, against Apple's model. |
 | `StabilityProbe` | Sends one request N times and reports agreement, to measure how much the real model's output drifts. The demo repo shows a real run against Apple's model. |
 | `SystemModelBackend` | `OnDeviceModel` backed by Foundation Models' `SystemLanguageModel` (compiled where the SDK has it, iOS/macOS 26+). |
 | `AssistantModesUI` | `AssistantConsoleView`, an inspector that shows each turn's route and the reason for it, the active mode's conversation, and the session state. |
@@ -75,7 +75,7 @@ This package answers each of these in code, with a test that fails if the answer
 - The model call runs in an unstructured `Task` the engine holds. It doesn't inherit the caller's cancellation, so `send` forwards it with `withTaskCancellationHandler`. `transition(to:)` may run while it is suspended: it cancels that call, frees the engine so the new mode can send at once, and bumps an epoch. An answer that still comes back is reported as `.discardedModeChanged` instead of being added to the new mode's transcript. Switching away and straight back still discards, because the context the answer was built from is gone.
 - A second `send` during a generation is rejected with `.busy`, not queued or interleaved.
 - A send or state write can name the mode it was made in (`expectedMode`). If a switch landed first, it is rejected (`.modeChanged`) instead of being applied under the new mode's rules.
-- Cancelling the caller's task cancels the model call and ends the turn as `.cancelled`. If the backend ignores cancellation and answers anyway, the answer is not kept.
+- Cancelling the caller's task cancels the model call and ends the turn as `.cancelled`. If the backend ignores cancellation and answers anyway, the answer is not kept. A caller that is already cancelled when it calls `send` gets nothing dispatched.
 - A stale call that finishes after a switch can't free the new mode's call: each call has an id, and only the call that owns the in-flight slot clears it.
 
 ## Honest limits
@@ -103,7 +103,7 @@ python3 Scripts/mutation_check.py   # rebuilds once per mutant; takes a few minu
 ## Install
 
 ```swift
-.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.7")
+.package(url: "https://github.com/rajatslakhina/assistant-mode-engine-kit.git", from: "1.0.8")
 ```
 
 ```swift
@@ -146,11 +146,11 @@ default: break
 What has actually been run, and where:
 
 - **CI** ([Actions](https://github.com/rajatslakhina/assistant-mode-engine-kit/actions/workflows/ci.yml)), on GitHub's hosted runners, four jobs on every push: three on `macos-15` (Xcode 16.4, Swift 6.1.2) and one on `macos-26`:
-  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 112 XCTest tests.
+  - *Build + test*: `swift build` and `swift test`, both with `-warnings-as-errors`, from a clean checkout. 114 XCTest tests.
   - *iOS Simulator build*: both library targets built for `generic/platform=iOS Simulator` with warnings as errors.
   - *Foundation Models build*: on GitHub's `macos-26` runner, `swift build` with warnings as errors against an SDK that has Foundation Models, plus a check that `SystemModelBackend` was actually compiled in rather than skipped by `#if canImport`.
-  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 46 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 46 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
-- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 112 tests and 46/46 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
+  - *Mutation check*: [`Scripts/mutation_check.py`](Scripts/mutation_check.py) applies 48 small, targeted mutants to the real source, one at a time (dropping the stale-answer epoch check, letting a private mode escalate, ignoring consent, letting overflow "fit", letting state escape a private mode, and so on). For each one it runs the test that is supposed to catch it, and the job fails if any mutant survives. All 48 are killed (a mutant that makes its test crash, such as an arithmetic trap, counts as caught).
+- **Locally** (Xcode 27.2, macOS 27.2.1): the same clean build, 114 tests and 48/48 mutants. Here the Foundation Models SDK is present, so `SystemModelBackend` is compiled too.
 - **On a Simulator**: the [demo app](#) was built against this package resolved from GitHub and run on an iOS 27.2 Simulator in every scenario, including `-systemModel` runs against Apple's on-device model. The screenshot above is from one of those runs.
 - **Not run**: tvOS or Apple TV hardware, a physical iPhone, and a real Claude backend.
 

@@ -111,8 +111,8 @@ MUTANTS = [
     (
         "caller-cancellation-ignored",
         SRC / "AssistantEngine.swift",
-        "        if Task.isCancelled {",
-        "        if false && Task.isCancelled {",
+        "        if Task.isCancelled {\n            // The caller gave up.",
+        "        if false && Task.isCancelled {\n            // The caller gave up.",
         T + "EngineTests/testCallerCancellationWinsEvenIfTheBackendIgnoresIt",
     ),
     (
@@ -289,6 +289,20 @@ MUTANTS = [
         "        guard !isTransitioning else { return }\n        isTransitioning = true",
         "        isTransitioning = true",
         T + "ConsoleModelTests/testSecondTransitionWhileTransitioningIsIgnored",
+    ),
+    (
+        "request-sends-untrimmed-history",
+        SRC / "AssistantEngine.swift",
+        "history: plan.includedTurns, prompt: prompt",
+        "history: transcript, prompt: prompt",
+        T + "EngineTests/testModelReceivesOnlyTheTurnsThePlanKept",
+    ),
+    (
+        "cancelled-caller-still-dispatches",
+        SRC / "AssistantEngine.swift",
+        "        if Task.isCancelled {\n            return finish(.cancelled(route: route), mode: mode, decision: decision, start: start)\n        }\n        let request = ModelRequest(",
+        "        let request = ModelRequest(",
+        T + "EngineTests/testSendFromAnAlreadyCancelledTaskDispatchesNothing",
     ),
     (
         "private-mode-escalates",
